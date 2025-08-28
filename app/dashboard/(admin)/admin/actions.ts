@@ -1,175 +1,165 @@
-'use server';
+"use server";
 
-import { revalidatePath } from 'next/cache';
-import { getSupabaseServer } from '@/lib/supabaseServer';
+import { getSupabaseServer } from "@/lib/supabaseServer";
+import { isAdmin } from "@/lib/auth/isAdmin";
+import { revalidatePath } from "next/cache";
 
-// ————— Helpers —————
-function normUrl(u: string): string {
-  if (!u) return u;
-  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
+function parseTags(raw: string | null): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 5);
 }
-function pick<T>(v: T | null | undefined): T | null {
-  return v == null ? null : v;
+
+function absolutize(u: string, base: string) {
+  try { return new URL(u, base).href; } catch { return u; }
 }
-async function fetchHtml(url: string): Promise<string | null> {
+
+async function fetchMeta(url: string) {
   try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ArtistHubBot/1.0; +https://www.munchiesart.club)',
-        'Accept-Language': 'en,de;q=0.8',
-      },
-      redirect: 'follow',
-      cache: 'no-store',
-    });
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 7000);
+    const res = await fetch(url, { signal: ctrl.signal, headers: { "user-agent": "Mozilla/5.0" } });
+    clearTimeout(t);
     if (!res.ok) return null;
-    const ct = res.headers.get('content-type') || '';
-    if (!ct.includes('text/html')) return null;
-    return await res.text();
+    const html = await res.text();
+
+    const pick = (re: RegExp) => {
+      const m = html.match(re);
+      return m?.[1]?.trim() || null;
+    };
+
+    const ogImage =
+      pick(/<meta\s+(?:property|name)=["']og:image["']\s+content=["']([^"']+)["']/i) ||
+      pick(/<meta\s+(?:property|name)=["']twitter:image(:src)?["']\s+content=["']([^"']+)["']/i);
+
+    const ogTitle =
+      pick(/<meta\s+(?:property|name)=["']og:title["']\s+content=["']([^"']+)["']/i) ||
+      pick(/<title>([^<]+)<\/title>/i);
+
+    const ogDesc =
+      pick(/<meta\s+(?:property|name)=["']og:description["']\s+content=["']([^"']+)["']/i) ||
+      pick(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
+
+    return {
+      title: ogTitle,
+      excerpt: ogDesc,
+      image_url: ogImage ? absolutize(ogImage, url) : null,
+    };
   } catch {
     return null;
   }
 }
-function extractMeta(html: string, nameOrProp: string): string | null {
-  const re = new RegExp(
-    `<meta[^>]+(?:name|property)=["']${nameOrProp}["'][^>]*content=["']([^"']+)["'][^>]*>`,
-    'i'
-  );
-  const m = html.match(re);
-  return m?.[1] ? m[1].trim() : null;
-}
-function firstImg(html: string): string | null {
-  const m = html.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
-  return m?.[1] ? m[1].trim() : null;
-}
-function extractTitle(html: string): string | null {
-  const og = extractMeta(html, 'og:title') || extractMeta(html, 'twitter:title');
-  if (og) return og;
-  const m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  return m?.[1]?.trim() || null;
-}
-function extractDesc(html: string): string | null {
-  return (
-    extractMeta(html, 'og:description') ||
-    extractMeta(html, 'twitter:description') ||
-    extractMeta(html, 'description')
-  );
-}
-function absolutize(maybeRelative: string | null, baseUrl: string): string | null {
-  if (!maybeRelative) return null;
-  try { return new URL(maybeRelative, baseUrl).href; } catch { return null; }
-}
-async function scrapePreview(url: string) {
-  const html = await fetchHtml(url);
-  if (!html) return { title: null, image: null, excerpt: null };
-  const title = extractTitle(html);
-  let img =
-    extractMeta(html, 'og:image') ||
-    extractMeta(html, 'twitter:image') ||
-    extractMeta(html, 'twitter:image:src') ||
-    firstImg(html);
-  img = absolutize(img, url);
-  const excerpt = extractDesc(html);
-  if (img) {
-    try {
-      const head = await fetch(img, { method: 'HEAD', cache: 'no-store' });
-      const ok = head.ok && (head.headers.get('content-type') || '').toLowerCase().startsWith('image/');
-      if (!ok) img = null;
-    } catch { img = null; }
-  }
-  return { title: pick(title), image: pick(img), excerpt: pick(excerpt) };
-}
 
-/**
- * Tags parser:
- * - trimmt
- * - begrenzt auf 5
- * - wandelt in lowercase (für robuste Suche/Filter)
- * - dedupliziert (Set)
- */
-function parseTags(input: string | null): string[] {
-  if (!input) return [];
-  const list = input
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 5)
-    .map((s) => s.toLowerCase());
-  return Array.from(new Set(list));
-}
-
-// ————— Actions —————
-export async function addArticle(formData: FormData) {
+export async function createLink(formData: FormData) {
   const supabase = await getSupabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
+  if (!user || !isAdmin(user)) return { error: "Not allowed" };
 
-  const url = normUrl(String(formData.get('url') || '').trim());
-  const titleIn = String(formData.get('title') || '').trim();
-  const imageIn = String(formData.get('image_url') || '').trim();
-  const excerptIn = String(formData.get('excerpt') || '').trim();
-  const tagsIn = String(formData.get('tags') || '').trim();
-  const published = !!formData.get('published');
-  const featured = !!formData.get('featured');
-  const alsoArtist = !!formData.get('also_artist');
+  const url = String(formData.get("url") || "").trim();
+  let title = (String(formData.get("title") || "").trim() || null) as string | null;
+  let image_url = (String(formData.get("image_url") || "").trim() || null) as string | null;
+  let excerpt = (String(formData.get("excerpt") || "").trim() || null) as string | null;
+  const published = formData.get("published") === "on";
+  const featured  = formData.get("featured") === "on";
+  const tags = parseTags(formData.get("tags") as string | null);
+  if (!url) return { error: "URL is required" };
 
-  // Nur scrapen, wenn etwas fehlt
-  let scraped = { title: null as string | null, image: null as string | null, excerpt: null as string | null };
-  if (!titleIn || !imageIn || !excerptIn) {
-    scraped = await scrapePreview(url);
-  }
-
-  const title = titleIn || scraped.title;
-  const image_url = imageIn || scraped.image;
-  const excerpt = excerptIn || scraped.excerpt;
-  const tags = parseTags(tagsIn);
-
-  const { error } = await supabase
-    .from('site_articles')
-    .insert({ url, title, image_url, excerpt, tags, published, featured });
-  if (error) throw error;
-
-  // Optional: auch auf der eigenen Artist-Page spiegeln — mit identischem published-Status
-  if (alsoArtist) {
-    const { data: artist } = await supabase
-      .from('artists')
-      .select('id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (artist?.id) {
-      await supabase.from('artist_news').insert({
-        artist_id: artist.id,
-        url,
-        title: title ?? null,
-        image_url: image_url ?? null,
-        published, // konsistent
-      });
+  // Auto-scrape nur, wenn Felder fehlen
+  if (!image_url || !title || !excerpt) {
+    const meta = await fetchMeta(url);
+    if (meta) {
+      title = title || meta.title;
+      excerpt = excerpt || meta.excerpt;
+      image_url = image_url || meta.image_url;
     }
   }
 
-  revalidatePath('/');                         // Startseite
-  revalidatePath('/(public)');                 // Public-Routen
-  revalidatePath('/dashboard/admin');  // Adminliste neu laden
+  const { error } = await supabase.from("admin_links").insert({
+    url, title, image_url, excerpt, tags, published, featured, created_by: user.id,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/");
+  return { ok: true };
 }
 
-export async function togglePublished(formData: FormData) {
+export async function removeLink(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const id = String(formData.get('id') || '').trim();
-  const value = String(formData.get('value') || 'false') === 'true';
-  await supabase.from('site_articles').update({ published: value }).eq('id', id);
-  revalidatePath('/'); revalidatePath('/(public)'); revalidatePath('/dashboard/admin');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !isAdmin(user)) return { error: "Not allowed" };
+
+  const id = String(formData.get("id") || "");
+  if (!id) return { error: "Missing id" };
+
+  const { error } = await supabase.from("admin_links").delete().eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/");
+  return { ok: true };
 }
 
 export async function toggleFeatured(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const id = String(formData.get('id') || '').trim();
-  const value = String(formData.get('value') || 'false') === 'true';
-  await supabase.from('site_articles').update({ featured: value }).eq('id', id);
-  revalidatePath('/'); revalidatePath('/(public)'); revalidatePath('/dashboard/admin');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !isAdmin(user)) return { error: "Not allowed" };
+
+  const id = String(formData.get("id") || "");
+  const nextVal = String(formData.get("featured") || "false") === "true";
+  if (!id) return { error: "Missing id" };
+
+  const { error } = await supabase.from("admin_links").update({ featured: nextVal }).eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/");
+  return { ok: true };
 }
 
-export async function deleteArticle(formData: FormData) {
+export async function togglePublished(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const id = String(formData.get('id') || '').trim();
-  await supabase.from('site_articles').delete().eq('id', id);
-  revalidatePath('/'); revalidatePath('/(public)'); revalidatePath('/dashboard/admin');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !isAdmin(user)) return { error: "Not allowed" };
+
+  const id = String(formData.get("id") || "");
+  const nextVal = String(formData.get("published") || "false") === "true";
+  if (!id) return { error: "Missing id" };
+
+  const { error } = await supabase.from("admin_links").update({ published: nextVal }).eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+// Nachträgliches Befüllen für bestehende Links
+export async function refetchMeta(formData: FormData) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !isAdmin(user)) return { error: "Not allowed" };
+
+  const id = String(formData.get("id") || "");
+  const url = String(formData.get("url") || "");
+  if (!id || !url) return { error: "Missing id/url" };
+
+  const meta = await fetchMeta(url);
+  if (!meta) return { error: "Could not fetch meta" };
+
+  const { error } = await supabase
+    .from("admin_links")
+    .update({
+      image_url: meta.image_url,
+      title: meta.title,
+      excerpt: meta.excerpt,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/");
+  return { ok: true };
 }
