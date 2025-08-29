@@ -1,3 +1,4 @@
+// app/dashboard/(admin)/admin/actions.ts
 "use server";
 
 import { getSupabaseServer } from "@/lib/supabaseServer";
@@ -13,18 +14,29 @@ function parseTags(raw: string | null): string[] {
 }
 
 function absolutize(u: string, base: string) {
-  try { return new URL(u, base).href; } catch { return u; }
+  try {
+    return new URL(u, base).href;
+  } catch {
+    return u;
+  }
 }
 
+// Scraper für Titel, Beschreibung, Bild
 async function fetchMeta(url: string) {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 7000);
-    const res = await fetch(url, { signal: ctrl.signal, headers: { "user-agent": "Mozilla/5.0" } });
+
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { "user-agent": "Mozilla/5.0" },
+      cache: "no-store",
+    });
+
     clearTimeout(t);
     if (!res.ok) return null;
-    const html = await res.text();
 
+    const html = await res.text();
     const pick = (re: RegExp) => {
       const m = html.match(re);
       return m?.[1]?.trim() || null;
@@ -32,7 +44,7 @@ async function fetchMeta(url: string) {
 
     const ogImage =
       pick(/<meta\s+(?:property|name)=["']og:image["']\s+content=["']([^"']+)["']/i) ||
-      pick(/<meta\s+(?:property|name)=["']twitter:image(:src)?["']\s+content=["']([^"']+)["']/i);
+      pick(/<meta\s+(?:property|name)=["']twitter:image(?::src)?["']\s+content=["']([^"']+)["']/i);
 
     const ogTitle =
       pick(/<meta\s+(?:property|name)=["']og:title["']\s+content=["']([^"']+)["']/i) ||
@@ -54,7 +66,9 @@ async function fetchMeta(url: string) {
 
 export async function createLink(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user || !isAdmin(user)) return { error: "Not allowed" };
 
   const url = String(formData.get("url") || "").trim();
@@ -62,11 +76,12 @@ export async function createLink(formData: FormData) {
   let image_url = (String(formData.get("image_url") || "").trim() || null) as string | null;
   let excerpt = (String(formData.get("excerpt") || "").trim() || null) as string | null;
   const published = formData.get("published") === "on";
-  const featured  = formData.get("featured") === "on";
+  const featured = formData.get("featured") === "on";
   const tags = parseTags(formData.get("tags") as string | null);
+
   if (!url) return { error: "URL is required" };
 
-  // Auto-scrape nur, wenn Felder fehlen
+  // Nur auto-scrapen, wenn Felder fehlen
   if (!image_url || !title || !excerpt) {
     const meta = await fetchMeta(url);
     if (meta) {
@@ -77,7 +92,14 @@ export async function createLink(formData: FormData) {
   }
 
   const { error } = await supabase.from("admin_links").insert({
-    url, title, image_url, excerpt, tags, published, featured, created_by: user.id,
+    url,
+    title,
+    image_url,
+    excerpt,
+    tags,
+    published,
+    featured,
+    created_by: user.id,
   });
   if (error) return { error: error.message };
 
@@ -88,7 +110,9 @@ export async function createLink(formData: FormData) {
 
 export async function removeLink(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user || !isAdmin(user)) return { error: "Not allowed" };
 
   const id = String(formData.get("id") || "");
@@ -104,7 +128,9 @@ export async function removeLink(formData: FormData) {
 
 export async function toggleFeatured(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user || !isAdmin(user)) return { error: "Not allowed" };
 
   const id = String(formData.get("id") || "");
@@ -121,7 +147,9 @@ export async function toggleFeatured(formData: FormData) {
 
 export async function togglePublished(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user || !isAdmin(user)) return { error: "Not allowed" };
 
   const id = String(formData.get("id") || "");
@@ -136,10 +164,12 @@ export async function togglePublished(formData: FormData) {
   return { ok: true };
 }
 
-// Nachträgliches Befüllen für bestehende Links
+// Bestehende Links nachträglich mit OpenGraph/Meta füllen
 export async function refetchMeta(formData: FormData) {
   const supabase = await getSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user || !isAdmin(user)) return { error: "Not allowed" };
 
   const id = String(formData.get("id") || "");
@@ -159,6 +189,7 @@ export async function refetchMeta(formData: FormData) {
     .eq("id", id);
 
   if (error) return { error: error.message };
+
   revalidatePath("/dashboard/admin");
   revalidatePath("/");
   return { ok: true };

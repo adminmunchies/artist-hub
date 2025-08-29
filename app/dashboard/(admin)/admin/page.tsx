@@ -7,7 +7,7 @@ import {
   removeLink,
   toggleFeatured,
   togglePublished,
-  refetchMeta, // ⬅️ NEU
+  refetchMeta,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -46,22 +46,19 @@ export default async function AdminHome() {
         <p className="text-sm text-gray-600">Welcome, {user.email}</p>
       </div>
 
-      {/* Cards */}
+      {/* Jump cards */}
       <div className="grid gap-4 md:grid-cols-2">
         <a href="#links" className="rounded-xl border p-4">
           <h2 className="font-medium mb-1">Share Links to Main Site</h2>
-          <p className="text-sm">
-            Create & manage featured links with up to 5 tags.
-          </p>
+          <p className="text-sm">Create & manage featured links with up to 5 tags.</p>
         </a>
         <a href="#artists" className="rounded-xl border p-4">
           <h2 className="font-medium mb-1">Artists & Submissions</h2>
-          <p className="text-sm">
-            Review, feature, or pin to homepage sections.
-          </p>
+          <p className="text-sm">Review, feature, or pin to homepage sections.</p>
         </a>
       </div>
 
+      {/* LINKS */}
       <div id="links" className="space-y-6">
         <h2 className="text-xl font-semibold">Links</h2>
 
@@ -69,7 +66,12 @@ export default async function AdminHome() {
         <form action={createLink} className="grid gap-3 md:grid-cols-4 rounded-xl border p-4">
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">URL *</label>
-            <input name="url" required className="w-full rounded-lg border px-3 py-2" placeholder="https://…" />
+            <input
+              name="url"
+              required
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="https://…"
+            />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Title (optional)</label>
@@ -77,15 +79,27 @@ export default async function AdminHome() {
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Image URL (optional)</label>
-            <input name="image_url" className="w-full rounded-lg border px-3 py-2" placeholder="https://…/image.jpg" />
+            <input
+              name="image_url"
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="https://…/image.jpg"
+            />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Excerpt (optional)</label>
-            <input name="excerpt" className="w-full rounded-lg border px-3 py-2" placeholder="Short teaser text…" />
+            <input
+              name="excerpt"
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="Short teaser text…"
+            />
           </div>
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Tags (max 5)</label>
-            <input name="tags" className="w-full rounded-lg border px-3 py-2" placeholder="art, exhibit, vienna" />
+            <input
+              name="tags"
+              className="w-full rounded-lg border px-3 py-2"
+              placeholder="art, exhibit, vienna"
+            />
           </div>
           <div className="md:col-span-2 flex items-center gap-4">
             <label className="inline-flex items-center gap-2 text-sm">
@@ -117,7 +131,7 @@ export default async function AdminHome() {
                   <a
                     href={l.url}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noreferrer noopener"
                     className="font-medium truncate hover:underline"
                   >
                     {l.title || l.url}
@@ -127,7 +141,7 @@ export default async function AdminHome() {
                   <p className="text-sm text-gray-600 mt-1 line-clamp-2">{l.excerpt}</p>
                 ) : null}
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {(l.tags ?? []).map((t) => (
+                  {(l.tags ?? []).slice(0, 5).map((t) => (
                     <span key={t} className="text-xs rounded-full border px-2 py-0.5">
                       {t}
                     </span>
@@ -154,7 +168,7 @@ export default async function AdminHome() {
                   </button>
                 </form>
 
-                {/* Fetch meta (NEU) */}
+                {/* Fetch meta */}
                 <form action={refetchMeta}>
                   <input type="hidden" name="id" value={l.id} />
                   <input type="hidden" name="url" value={l.url} />
@@ -182,4 +196,3 @@ export default async function AdminHome() {
     </section>
   );
 }
-

@@ -1,4 +1,3 @@
-// app/(public)/artists/page.tsx
 import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabaseServer";
 import { routes } from "@/lib/routes";
@@ -12,8 +11,8 @@ type Artist = {
   name: string | null;
   city?: string | null;
   avatar_url?: string | null;
-  disciplines?: string[] | null; // optional: falls vorhanden
-  tags?: string[] | null;        // optional: falls vorhanden
+  disciplines?: string[] | null;
+  tags?: string[] | null;
 };
 
 type ArtistNews = {
@@ -25,32 +24,34 @@ type ArtistNews = {
 };
 
 function normalize(str: unknown) {
-  return (String(str || ""))
-    .normalize("NFD")             // diacritics entfernen
+  return String(str || "")
+    .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 }
 
+// ⬇️ WICHTIG: searchParams ist ein Promise, wir awaiten es
 export default async function ArtistsPage({
   searchParams,
 }: {
-  searchParams?: { q?: string };
+  searchParams?: Promise<{ q?: string }>;
 }) {
-  const qRaw = (searchParams?.q ?? "").trim();
+  const sp = await searchParams;
+  const qRaw = (sp?.q ?? "").trim();
   const q = normalize(qRaw);
 
   const supabase = await getSupabaseServer();
 
-  // 1) Basis: wir holen „genug“ Artists und filtern dann im Code robust auf Umlaute etc.
+  // 1) Künstler holen (reichlich, wir filtern im Code)
   const { data: artistsAll } = await supabase
     .from("artists")
     .select("id,name,city,avatar_url,disciplines,tags")
     .order("created_at", { ascending: false })
-    .limit(200); // MVP: reicht dicke
+    .limit(200);
 
   const artists = artistsAll ?? [];
 
-  // 2) Wenn Suchbegriff, zusätzlich letzte News holen und zur Artist-Relevanz beitragen
+  // 2) Wenn Query, auch letzte Artist-News laden (für Relevanz)
   let newsByArtist = new Map<string, ArtistNews[]>();
   if (q) {
     const { data: news } = await supabase
@@ -59,6 +60,7 @@ export default async function ArtistsPage({
       .eq("published", true)
       .order("created_at", { ascending: false })
       .limit(300);
+
     (news ?? []).forEach((n) => {
       if (!n.artist_id) return;
       const arr = newsByArtist.get(n.artist_id) ?? [];
@@ -67,18 +69,17 @@ export default async function ArtistsPage({
     });
   }
 
-  // 3) Filter-Logik (Umlaute, groß/klein, Disziplinen, Tags, City, Name, News)
+  // 3) Filtern (Name, City, Disciplines, Tags) + News
   const filtered = q
     ? artists.filter((a) => {
-        const hay =
-          [
-            a.name,
-            a.city,
-            ...(a.disciplines ?? []),
-            ...(a.tags ?? []),
-          ]
-            .map(normalize)
-            .join(" ");
+        const hay = [
+          a.name,
+          a.city,
+          ...(a.disciplines ?? []),
+          ...(a.tags ?? []),
+        ]
+          .map(normalize)
+          .join(" ");
 
         const hitArtistFields = hay.includes(q);
 
@@ -94,7 +95,7 @@ export default async function ArtistsPage({
 
         return hitArtistFields || hitNews;
       })
-    : artists.slice(0, 4); // kein q ⇒ nur 4 neueste als Platzhalter
+    : artists.slice(0, 4);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
@@ -104,15 +105,16 @@ export default async function ArtistsPage({
 
       {qRaw ? (
         <p className="mb-4 text-sm text-gray-600">
-          Showing results for <span className="font-medium">“{qRaw}”</span> — {filtered.length} artist{filtered.length === 1 ? "" : "s"}
+          Showing results for <span className="font-medium">“{qRaw}”</span> —{" "}
+          {filtered.length} artist{filtered.length === 1 ? "" : "s"}
         </p>
       ) : (
         <p className="mb-4 text-sm text-gray-600">
-          Latest artists (4). Use the search to find by name, city, disciplines, or tags.
+          Latest artists (4). Use the search to find by name, city, disciplines,
+          or tags.
         </p>
       )}
 
-      {/* Ergebnisliste */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
         {filtered.map((a: Artist) => (
           <Link
@@ -129,15 +131,30 @@ export default async function ArtistsPage({
               loading="lazy"
             />
             <div className="px-3 py-2">
-              <div className="font-medium truncate">{a.name ?? "Unnamed Artist"}</div>
-              {a.city ? <div className="text-sm text-gray-500">{a.city}</div> : null}
-              {(a.disciplines && a.disciplines.length > 0) || (a.tags && a.tags.length > 0) ? (
+              <div className="font-medium truncate">
+                {a.name ?? "Unnamed Artist"}
+              </div>
+              {a.city ? (
+                <div className="text-sm text-gray-500">{a.city}</div>
+              ) : null}
+              {(a.disciplines && a.disciplines.length > 0) ||
+              (a.tags && a.tags.length > 0) ? (
                 <div className="mt-1 flex flex-wrap gap-2">
                   {(a.disciplines ?? []).slice(0, 3).map((d) => (
-                    <span key={`d-${d}`} className="text-xs rounded-full border px-2 py-0.5">{d}</span>
+                    <span
+                      key={`d-${d}`}
+                      className="text-xs rounded-full border px-2 py-0.5"
+                    >
+                      {d}
+                    </span>
                   ))}
                   {(a.tags ?? []).slice(0, 3).map((t) => (
-                    <span key={`t-${t}`} className="text-xs rounded-full border px-2 py-0.5">{t}</span>
+                    <span
+                      key={`t-${t}`}
+                      className="text-xs rounded-full border px-2 py-0.5"
+                    >
+                      {t}
+                    </span>
                   ))}
                 </div>
               ) : null}
