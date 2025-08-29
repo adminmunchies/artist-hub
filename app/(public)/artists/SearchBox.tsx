@@ -1,39 +1,38 @@
+// app/(public)/artists/SearchBox.tsx
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function SearchBox() {
   const router = useRouter();
   const sp = useSearchParams();
-  const [val, setVal] = useState(sp.get("q") ?? "");
+  const [q, setQ] = useState(sp.get("q") ?? "");
 
-  // sync wenn Back/Forward genutzt wird
-  useEffect(() => setVal(sp.get("q") ?? ""), [sp]);
-
-  // debounce & URL-Param aktualisieren
   useEffect(() => {
-    const t = setTimeout(() => {
-      const q = val.trim();
-      const params = new URLSearchParams(Array.from(sp.entries()));
-      if (q) params.set("q", q);
-      else params.delete("q");
-      router.replace(`/artists?${params.toString()}`, { scroll: false });
-    }, 300);
-    return () => clearTimeout(t);
-  }, [val]); // bewusst minimal
+    setQ(sp.get("q") ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp?.get("q")]);
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const v = q.trim();
+    const url = v ? `/artists?q=${encodeURIComponent(v)}` : `/artists`;
+    router.push(url);
+  }
 
   return (
-    <div className="sticky top-0 z-10 bg-white/70 backdrop-blur border-b py-4 mb-6">
-      <div className="max-w-6xl mx-auto px-4">
-        <input
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          placeholder="Search artists, tags, disciplines, locations…"
-          className="w-full rounded-2xl border px-4 py-3 text-base"
-          autoFocus
-        />
-      </div>
-    </div>
+    <form onSubmit={onSubmit} className="mb-6 flex gap-2">
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search artists, disciplines, tags, city…"
+        className="flex-1 rounded-lg border px-3 py-2"
+        aria-label="Search"
+      />
+      <button className="rounded-lg border px-4 py-2 hover:bg-gray-50" type="submit">
+        Search
+      </button>
+    </form>
   );
 }
