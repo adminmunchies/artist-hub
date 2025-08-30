@@ -1,8 +1,7 @@
-// app/dashboard/profile/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { saveProfile, updateAvatar } from "./actions";
 
 type Artist = {
   id: string;
@@ -16,8 +15,6 @@ type Artist = {
 };
 
 export default function ProfilePage() {
-  const router = useRouter();
-  const [saving, setSaving] = useState(false);
   const [artist, setArtist] = useState<Artist | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -31,49 +28,8 @@ export default function ProfilePage() {
   }, []);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return setPreviewUrl(null);
-    const u = URL.createObjectURL(f);
-    setPreviewUrl(u);
-  };
-
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setSaving(true);
-
-    const fd = new FormData(e.currentTarget);
-    const rawDisciplines = String(fd.get("disciplines") || "");
-
-    const payload: Record<string, unknown> = {
-      name: String(fd.get("name") || "").trim(),
-      city: String(fd.get("city") || "").trim(),
-      bio: String(fd.get("bio") || ""),
-      instagram_url: String(fd.get("instagram_url") || "").trim(),
-      website_url: String(fd.get("website_url") || "").trim(),
-      disciplines: rawDisciplines.split(",").map(s => s.trim()).filter(Boolean),
-    };
-
-    // leere Werte nicht überschreiben
-    for (const [k, v] of Object.entries(payload)) {
-      if (typeof v === "string" && v.trim() === "") delete (payload as any)[k];
-      if (Array.isArray(v) && v.length === 0) delete (payload as any)[k];
-    }
-
-    const res = await fetch("/api/profile/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert(JSON.stringify(err));
-      setSaving(false);
-      return;
-    }
-
-    const data = await res.json().catch(() => ({} as any));
-    router.push(data?.artistId ? `/a/${data.artistId}` : "/artists");
+    const f = e.target.files?.[0] ?? null;
+    setPreviewUrl(f ? URL.createObjectURL(f) : null);
   };
 
   return (
@@ -97,16 +53,11 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            <form
-              key={artist?.id || "new"}
-              action="/api/profile/avatar"
-              method="POST"
-              encType="multipart/form-data"
-              className="space-y-3"
-            >
+            {/* Server Action – KEIN method/encType setzen */}
+            <form action={updateAvatar} className="space-y-3">
               <input
                 type="file"
-                name="file"
+                name="avatar"              // muss "avatar" heißen
                 accept="image/*"
                 onChange={onFileChange}
                 className="w-full rounded-md border px-3 py-2"
@@ -126,7 +77,8 @@ export default function ProfilePage() {
 
         {/* RIGHT: Text fields */}
         <div>
-          <form key={artist?.id || "new"} onSubmit={onSubmit} className="space-y-6">
+          {/* Server Action – KEIN method/encType setzen */}
+          <form action={saveProfile} className="space-y-6">
             <div>
               <label className="block text-sm mb-1">Name</label>
               <input
@@ -188,13 +140,15 @@ export default function ProfilePage() {
                 placeholder="sculpture, installation, painting"
                 className="w-full rounded-md border px-3 py-2"
               />
-              <p className="text-xs text-gray-500 mt-1">Example: sculpture, installation, painting</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Example: sculpture, installation, painting
+              </p>
             </div>
 
-            <button type="submit" disabled={saving} className="rounded-full border px-5 py-2">
-              {saving ? "Saving…" : "Save"}
-            </button>
-            <p className="text-xs text-gray-500">After saving you’ll be redirected to your public profile.</p>
+            <button className="rounded-full border px-5 py-2">Save</button>
+            <p className="text-xs text-gray-500">
+              After saving you’ll be redirected to your public profile.
+            </p>
           </form>
         </div>
       </div>
