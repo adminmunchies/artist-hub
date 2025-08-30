@@ -1,8 +1,8 @@
-// app/dashboard/works/news/page.tsx
-import Link from "next/link";
+// app/dashboard/(user)/news/page.tsx
 import { getSupabaseServer } from "@/lib/supabaseServer";
-import { routes } from "@/lib/routes";
-import { addNewsAction, deleteNewsAction } from "./actions";
+import { scrapeOG } from "@/lib/og";
+import { revalidatePath } from "next/cache";
+import TagLink from "@/components/TagLink";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,109 +12,197 @@ type NewsRow = {
   url: string;
   title: string | null;
   image_url: string | null;
-  created_at: string;
+  created_at: string | null;
+  tags: string[] | null;
 };
 
-export default async function NewsPage() {
+function parseTags(input: string): string[] {
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 8); // Limit, damit UI sauber bleibt
+}
+
+async function getCurrentArtistId() {
   const supabase = await getSupabaseServer();
+  const { data: au } = await supabase.auth.getUser();
+  const uid = au?.user?.id;
+  if (!uid) return null;
 
-  // Auth
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // ggf. an deine Verknüpfung anpassen
+  const { data: a } = await supabase
+    .from("artists")
+    .select("id")
+    .eq("user_id", uid)
+    .maybeSingle();
 
-  if (!user) {
+  return a?.id ?? null;
+}
+
+async function fetchMyNews(artistId: string) {
+  const supabase = await getSupabaseServer();
+  const { data } = await supabase
+    .from("artist_news")
+    .select("id,url,title,image_url,created_at,tags")
+    .eq("artist_id", artistId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  return (data ?? []) as NewsRow[];
+}
+
+export default async function Page() {
+  const artistId = await getCurrentArtistId();
+  if (!artistId) {
     return (
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="text-2xl font-semibold mb-6">News</h1>
-        <p className="text-red-600">Not authenticated.</p>
+      <main className="mx-auto max-w-5xl px-4 py-8">
+        <h1 className="text-2xl font-semibold mb-4">News</h1>
+        <p>Kein verknüpfter Artist gefunden.</p>
       </main>
     );
   }
 
-  // eigenen Artist finden
-  const { data: artist } = await supabase
-    .from("artists")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const rows = await fetchMyNews(artistId);
 
-  // News dieses Artists laden
-  let news: NewsRow[] = [];
-  if (artist?.id) {
-    const { data } = await supabase
-      .from("artist_news") // <- wichtig: richtige Tabelle
-      .select("id,url,title,image_url,created_at")
-      .eq("artist_id", artist.id)
-      .order("created_at", { ascending: false });
-    news = (data ?? []) as NewsRow[];
+  // 👇 WICHTIG: In Next 15 erhält die Action genau EIN Argument (FormData)
+  async function addNews(formData: FormData) {
+    "use server";
+    const supabase = await getSupabaseServer();
+
+    const url = String(formData.get("url") ?? "").trim();
+    const tagsCsv = String(formData.get("tags") ?? "");
+    const tags = parseTags(tagsCsv);
+
+    if (!url) return;
+
+    // 1) OG scrapen (nicht blockierend, robust gegen Fehler)
+    let title: string | null = null;
+    let image_url: string | null = null;
+    try {
+      const og = await scrapeOG(url);
+      title = og.title ?? null;
+      image_url = og.image ?? null;
+    } catch {
+      // Scrape-Fehler ignorieren
+    }
+
+    // 2) Speichern
+    await supabase
+      .from("artist_news")
+      .insert({
+        artist_id: artistId,
+        url,
+        title,
+        image_url,
+        tags, // text[]
+        published: true,
+      });
+
+    // 3) Seiten neu validieren (öffentlich & Dashboard)
+    revalidatePath(`/a/${artistId}`);
+    revalidatePath(`/`); // Home
+    revalidatePath(`/dashboard/news`);
+  }
+
+  // 👇 ebenfalls EIN Argument
+  async function deleteNews(formData: FormData) {
+    "use server";
+    const id = String(formData.get("id") ?? "");
+    if (!id) return;
+    const supabase = await getSupabaseServer();
+    await supabase.from("artist_news").delete().eq("id", id);
+    revalidatePath(`/a/${artistId}`);
+    revalidatePath(`/dashboard/news`);
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 space-y-6">
+    <main className="mx-auto max-w-5xl px-4 py-8 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">News</h1>
-        <Link
-          href={routes.dashboardWorks()}
-          className="rounded-full border px-4 py-2"
-        >
-          Back to Works
-        </Link>
+        <div className="flex gap-2">
+          <a href={`/a/${artistId}`} className="border rounded-full px-4 py-2">
+            My public page
+          </a>
+          <a href="/dashboard/works" className="border rounded-full px-4 py-2">
+            Back to Works
+          </a>
+        </div>
       </div>
 
-      {/* Link hinzufügen */}
-      <form
-        action={addNewsAction}
-        className="rounded-2xl border p-4 flex items-center gap-3"
-      >
+      {/* Eingabe */}
+      <form action={addNews} className="rounded-2xl border p-4 space-y-3">
+        <label className="block text-sm font-medium">URL *</label>
         <input
           name="url"
-          type="url"
           required
-          placeholder="https://example.com/exhibition/…"
-          className="flex-1 rounded-lg border px-3 py-2"
+          placeholder="https://example.com/exhibition/..."
+          className="w-full border rounded-md px-3 py-2"
         />
-        <button className="rounded-full border px-4 py-2">Add</button>
+
+        <label className="block text-sm font-medium">
+          Tags (comma-separated)
+        </label>
+        <input
+          name="tags"
+          placeholder="vienna, parallel, art fair"
+          className="w-full border rounded-md px-3 py-2"
+        />
+        <p className="text-xs text-gray-500">
+          Max. 8 Tags. Werden auf der öffentlichen Artist-Seite angezeigt und
+          in der Suche gefunden.
+        </p>
+
+        <button className="border rounded-full px-4 py-2">Add</button>
       </form>
 
-      {/* Grid */}
-      {news.length === 0 ? (
-        <p>No news yet.</p>
-      ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {news.map((n) => (
-            <article key={n.id} className="rounded-2xl border overflow-hidden">
+      {/* Liste */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {rows.map((n) => (
+          <article
+            key={n.id}
+            className="rounded-2xl border overflow-hidden flex flex-col"
+          >
+            <a href={n.url} target="_blank" rel="noreferrer">
               {n.image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <a href={n.url} target="_blank" rel="noreferrer">
-                  <img
-                    src={n.image_url}
-                    alt={n.title ?? "News"}
-                    className="w-full aspect-[4/3] object-cover"
-                  />
-                </a>
+                <img
+                  src={n.image_url}
+                  alt={n.title ?? "News"}
+                  className="h-56 w-full object-cover"
+                />
+              ) : (
+                <div className="h-56 w-full flex items-center justify-center text-gray-400">
+                  No image
+                </div>
+              )}
+            </a>
+
+            <div className="p-3 flex-1">
+              <a
+                href={n.url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium line-clamp-2"
+              >
+                {n.title ?? n.url}
+              </a>
+
+              {Array.isArray(n.tags) && n.tags.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {n.tags.slice(0, 8).map((t) => (
+                    <TagLink key={t} tag={t} />
+                  ))}
+                </div>
               ) : null}
+            </div>
 
-              <div className="p-3 flex items-start justify-between gap-3">
-                <a
-                  href={n.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium hover:underline truncate"
-                  title={n.title ?? n.url}
-                >
-                  {n.title ?? n.url}
-                </a>
-
-                <form action={deleteNewsAction}>
-                  <input type="hidden" name="id" value={n.id} />
-                  <button className="text-sm text-red-600">Delete</button>
-                </form>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
+            <form action={deleteNews} className="px-3 pb-3">
+              <input type="hidden" name="id" value={n.id} />
+              <button className="text-sm text-red-600">Delete</button>
+            </form>
+          </article>
+        ))}
+      </section>
     </main>
   );
 }

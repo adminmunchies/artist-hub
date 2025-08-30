@@ -1,48 +1,50 @@
 // app/(public)/search/page.tsx
 import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabaseServer";
-import TagLink from "@/components/TagLink";
 import SearchBox from "../artists/SearchBox";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Item = {
+type Row = {
   source: "artist" | "work" | "news" | "link";
   id: string;
   title: string | null;
   subtitle: string | null;
   image_url: string | null;
-  url: string;
 };
-
-const norm = (s: unknown) =>
-  String(s ?? "")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
 
 export default async function SearchPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
-  const sp = await searchParams; // Next15: Promise
-  const qRaw = (sp?.q ?? "").trim();
-  const q = norm(qRaw);
+  const sp = await searchParams;
+  const qRaw = (sp?.q ?? "").toString();
+  const q = qRaw.trim();
 
   const supabase = await getSupabaseServer();
-
-  let items: Item[] = [];
-  try {
-    const { data, error } = await supabase.rpc("search_unified", { q });
-    if (error) {
-      console.error("search_unified error:", error.message);
-    }
-    items = (data ?? []) as Item[];
-  } catch (e) {
-    console.error("RPC call failed:", e);
+  let rows: Row[] = [];
+  if (q.length > 0) {
+    const { data } = await supabase.rpc("search_unified", { q });
+    rows = (data ?? []) as Row[];
   }
+
+  const hrefFor = (r: Row) => {
+    switch (r.source) {
+      case "artist":
+        return `/a/${r.id}`;
+      case "work":
+        return `/w/${r.id}`;
+      case "news":
+        // Artist-News -> /an/[id]  (wichtig!)
+        return `/an/${r.id}`;
+      case "link":
+      default:
+        // Admin „Editor’s Picks“ Detailseite
+        return `/news/${r.id}`;
+    }
+  };
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
@@ -53,82 +55,47 @@ export default async function SearchPage({
       </div>
 
       <p className="text-sm text-gray-500 mb-6">
-        Query: <span className="font-medium">{qRaw || "—"}</span> • {items.length} result
-        {items.length === 1 ? "" : "s"}
+        Query: <span className="font-medium">{qRaw || "—"}</span> • {rows.length} result
+        {rows.length === 1 ? "" : "s"}
       </p>
 
-      {items.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-gray-600">No results.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {items.map((it) => {
-            const CardInner = (
-              <>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {rows.map((r) => {
+            const href = hrefFor(r);
+            return (
+              <Link
+                key={`${r.source}-${r.id}`}
+                href={href}
+                className="block rounded-2xl border overflow-hidden hover:shadow-sm transition"
+                prefetch={false}
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                {it.image_url ? (
+                {r.image_url ? (
                   <img
-                    src={it.image_url}
-                    alt={it.title ?? ""}
+                    src={r.image_url}
+                    alt={r.title ?? "Result"}
                     className="h-56 w-full object-cover"
-                    loading="lazy"
                   />
                 ) : (
-                  <div className="h-56 w-full bg-gray-100 flex items-center justify-center text-gray-400">
+                  <div className="h-56 w-full flex items-center justify-center text-sm text-gray-500">
                     No image
                   </div>
                 )}
                 <div className="p-3">
-                  <div className="text-[11px] tracking-wide text-gray-500 mb-1">
-                    {it.source.toUpperCase()}
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">
+                    {r.source}
                   </div>
-                  <div className="font-medium line-clamp-2">
-                    {it.title ?? it.url}
-                  </div>
-                  {it.subtitle ? (
-                    <div className="text-sm text-gray-600 line-clamp-1 mt-1">
-                      {it.subtitle}
+                  <div className="font-medium line-clamp-2">{r.title ?? "Untitled"}</div>
+                  {r.subtitle ? (
+                    <div className="text-sm text-gray-600 line-clamp-2 mt-1">
+                      {r.subtitle}
                     </div>
                   ) : null}
                 </div>
-              </>
-            );
-
-            // interne Ziele (artist/work) → <Link>, externe (news/link) → <a>
-            if (it.source === "artist") {
-              return (
-                <Link
-                  key={`${it.source}-${it.id}`}
-                  href={`/a/${it.id}`}
-                  className="block rounded-2xl border overflow-hidden hover:shadow-sm transition"
-                  prefetch={false}
-                >
-                  {CardInner}
-                </Link>
-              );
-            }
-            if (it.source === "work") {
-              return (
-                <Link
-                  key={`${it.source}-${it.id}`}
-                  href={`/w/${it.id}`}
-                  className="block rounded-2xl border overflow-hidden hover:shadow-sm transition"
-                  prefetch={false}
-                >
-                  {CardInner}
-                </Link>
-              );
-            }
-            // news / link: extern
-            return (
-              <a
-                key={`${it.source}-${it.id}`}
-                href={it.url}
-                target="_blank"
-                rel="noreferrer"
-                className="block rounded-2xl border overflow-hidden hover:shadow-sm transition"
-              >
-                {CardInner}
-              </a>
+              </Link>
             );
           })}
         </div>

@@ -1,106 +1,78 @@
 "use server";
 
-import { getSupabaseServer } from "@/lib/supabaseServer";
 import { revalidatePath } from "next/cache";
+import { getSupabaseServer } from "@/lib/supabaseServer";
 
-function toHttp(u: string) {
-  if (!u) return "";
-  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
-}
-function absolutizeUrl(src: string, base: string) {
-  try { return new URL(src, base).toString(); } catch { return src; }
-}
-
-// robuste Metadaten-Extraktion
-async function fetchMetadata(targetUrl: string) {
-  const result = { title: null as string | null, image_url: null as string | null };
-  try {
-    const resp = await fetch(targetUrl, {
-      headers: {
-        "user-agent": "Mozilla/5.0 (compatible; ArtistHubBot/1.0; +https://example.com/bot)",
-        accept: "text/html,application/xhtml+xml",
-      },
-      redirect: "follow",
-    });
-    const html = await resp.text();
-    const getMeta = (name: string, attr = "property") => {
-      const re = new RegExp(`<meta[^>]+${attr}=["']${name}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i");
-      return html.match(re)?.[1] ?? null;
-    };
-    const getMetaName = (name: string) => getMeta(name, "name");
-    const ogTitle = getMeta("og:title") || getMetaName("twitter:title");
-    const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
-    const ogImg = getMeta("og:image") || getMetaName("twitter:image");
-    result.title = (ogTitle ?? titleTag ?? null)?.trim() || null;
-    result.image_url = ogImg ? absolutizeUrl(ogImg, targetUrl) : null;
-  } catch {}
-  if (!result.title) {
-    try { result.title = new URL(targetUrl).hostname.replace(/^www\./, ""); } catch { result.title = targetUrl; }
-  }
-  return result;
+function parseTags(raw: unknown): string[] {
+  return String(raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 8); // sanftes Limit
 }
 
-// Link hinzufügen → published: true (sofort öffentlich)
-export async function addNewsAction(formData: FormData) {
+async function getCurrentArtistId() {
   const supabase = await getSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) throw new Error("Not signed in");
 
+  // Wir gehen davon aus: artists.user_id verweist auf auth.user.id
   const { data: artist } = await supabase
     .from("artists")
     .select("id")
-    .eq("user_id", user.id)
+    .eq("user_id", uid)
+    .limit(1)
     .maybeSingle();
-  if (!artist?.id) return;
 
-  const raw = (formData.get("url") as string) || "";
-  const url = toHttp(raw.trim());
-  if (!url) return;
+  if (!artist?.id) throw new Error("No artist profile linked to this account.");
+  return artist.id as string;
+}
 
-  const meta = await fetchMetadata(url);
+export async function addNews(formData: FormData) {
+  const url = String(formData.get("url") || "").trim();
+  const tags = parseTags(formData.get("tags"));
 
-  await supabase.from("artist_news").insert({
-    artist_id: artist.id,
+  if (!url) throw new Error("URL is required.");
+
+  const supabase = await getSupabaseServer();
+  const artistId = await getCurrentArtistId();
+
+  const { error } = await supabase.from("artist_news").insert({
+    artist_id: artistId,
     url,
-    title: meta.title,
-    image_url: meta.image_url,
-    published: true, // <<< konsistent
+    tags, // <— neu
+    published: true, // öffentlich
   });
 
+  if (error) throw new Error(error.message);
   revalidatePath("/dashboard/news");
-  revalidatePath("/");
-  revalidatePath(`/a/${artist.id}`);
 }
 
-// Link löschen
-export async function deleteNewsAction(formData: FormData) {
+export async function updateTags(formData: FormData) {
+  const id = String(formData.get("id") || "");
+  const tags = parseTags(formData.get("tags"));
+
+  if (!id) throw new Error("Missing news id.");
+
   const supabase = await getSupabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  const { error } = await supabase
+    .from("artist_news")
+    .update({ tags })
+    .eq("id", id);
 
-  const id = formData.get("id") as string;
-  if (!id) return;
-
-  await supabase.from("artist_news").delete().eq("id", id);
-
+  if (error) throw new Error(error.message);
   revalidatePath("/dashboard/news");
-  revalidatePath("/");
 }
 
-// Optional: Refresh
-export async function refreshNewsAction(formData: FormData) {
+export async function deleteNews(formData: FormData) {
+  const id = String(formData.get("id") || "");
+  if (!id) throw new Error("Missing news id.");
+
   const supabase = await getSupabaseServer();
-  const id = formData.get("id") as string;
-  const url = formData.get("url") as string;
-  if (!id || !url) return;
+  const { error } = await supabase.from("artist_news").delete().eq("id", id);
 
-  const meta = await fetchMetadata(url);
-  await supabase.from("artist_news").update({
-    title: meta.title,
-    image_url: meta.image_url,
-  }).eq("id", id);
-
+  if (error) throw new Error(error.message);
   revalidatePath("/dashboard/news");
-  revalidatePath("/");
 }
 
