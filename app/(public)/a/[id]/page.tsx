@@ -1,3 +1,4 @@
+// app/(public)/a/[id]/page.tsx
 import Link from "next/link";
 import NewsSection from "./NewsSection";
 import TagLink from "@/components/TagLink";
@@ -28,6 +29,7 @@ function pickImage(w: any): string | null {
 }
 
 const asHttp = (u?: string | null) => (!u ? null : /^https?:\/\//i.test(u) ? u : `https://${u}`);
+const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export default async function ArtistPublicPage({ params }: Params) {
   const { id } = await params; // Next 15: params ist Promise
@@ -51,15 +53,35 @@ export default async function ArtistPublicPage({ params }: Params) {
   const avatar =
     artist?.avatar_url || "https://placehold.co/96x96?text=A&font=source-sans-pro";
 
+  // JSON-LD Person (für SEO/AI)
+  const artistUrl = `${SITE_ORIGIN}/a/${id}`;
+  const jsonLdArtist = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: artist?.name ?? undefined,
+    description: artist?.bio ?? undefined,
+    image: artist?.avatar_url ?? undefined,
+    url: artistUrl,
+    sameAs: [artist?.instagram_url, artist?.website_url].filter(Boolean),
+    address: artist?.city ? { "@type": "PostalAddress", addressLocality: artist.city } : undefined,
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
+      {/* JSON-LD */}
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdArtist) }}
+      />
+
       <h1 className="text-3xl font-semibold">{artist?.name || "Artist"}</h1>
 
       <div className="mt-4 flex items-start gap-6">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={avatar}
-          alt={artist?.name ?? "Avatar"}
+          alt={artist?.name ? `${artist.name} — portrait` : "Artist portrait"}
           className="w-20 h-20 rounded-xl object-cover border"
         />
         <div className="flex-1">
@@ -109,8 +131,9 @@ export default async function ArtistPublicPage({ params }: Params) {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={imgSrc}
-                    alt={w.title ?? "Artwork"}
+                    alt={w.title ? `${w.title} — artwork` : "Artwork"}
                     className="w-full aspect-square object-cover rounded-lg"
+                    loading="lazy"
                   />
                 ) : (
                   <div className="w-full aspect-square rounded-lg border flex items-center justify-center text-xs text-gray-500">
