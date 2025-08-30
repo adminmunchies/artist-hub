@@ -1,5 +1,6 @@
 // app/(public)/w/[id]/page.tsx
 import Link from "next/link";
+import TagLink from "@/components/TagLink";
 import { getSupabaseServer } from "@/lib/supabaseServer";
 
 type Work = {
@@ -10,6 +11,7 @@ type Work = {
   thumbnail_url: string | null;
   artist_id: string | null;
   published: boolean | null;
+  tags?: string[] | null;
 };
 
 type Artist = { id: string; name: string | null };
@@ -27,7 +29,7 @@ export default async function WorkPublicPage({
 
   const { data: work } = await supabase
     .from("works")
-    .select("id,title,description,image_url,thumbnail_url,artist_id,published")
+    .select("id,title,description,image_url,thumbnail_url,artist_id,published,tags")
     .eq("id", id)
     .maybeSingle();
 
@@ -35,7 +37,9 @@ export default async function WorkPublicPage({
     return (
       <main className="mx-auto max-w-6xl px-4 py-8">
         <p className="text-red-600">Work not found.</p>
-        <Link href="/" className="underline">Back home</Link>
+        <Link href="/" className="underline">
+          Back home
+        </Link>
       </main>
     );
   }
@@ -58,17 +62,13 @@ export default async function WorkPublicPage({
         </Link>
       </div>
 
-      {/* Titel */}
       <h1 className="mb-4 text-2xl font-semibold">{work.title ?? "Untitled"}</h1>
 
-      {/* Großes Bild ohne Border, mit Weißraum */}
+      {/* Bild groß */}
       <figure>
         {img ? (
-          <img
-            src={img}
-            alt={alt}
-            className="mx-auto block w-full max-h-[80vh] object-contain"
-          />
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={img} alt={alt} className="mx-auto block w-full max-h-[80vh] object-contain" />
         ) : (
           <div className="flex h-[50vh] w-full items-center justify-center bg-gray-100 text-gray-400">
             No image
@@ -81,6 +81,15 @@ export default async function WorkPublicPage({
         <p className="mt-4 max-w-3xl text-gray-700">{work.description}</p>
       ) : null}
       <p className="mt-2 text-sm text-gray-500">Image courtesy of {artistName}</p>
+
+      {/* Tags → /search */}
+      {(work.tags ?? []).length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {(work.tags ?? []).map((t) => (
+            <TagLink key={t} tag={t} />
+          ))}
+        </div>
+      )}
     </main>
   );
 }

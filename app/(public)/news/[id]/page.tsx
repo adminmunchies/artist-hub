@@ -1,21 +1,24 @@
 // app/(public)/news/[id]/page.tsx
+import Link from "next/link";
 import { getSupabaseServer } from "@/lib/supabaseServer";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const BASE = process.env.SITE_URL || "http://localhost:3000";
+const BASE = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
 export async function generateMetadata({ params }: { params: { id: string } }) {
   const supabase = await getSupabaseServer();
   const { data: row } = await supabase
-    .from("admin_links")
+    .from("site_articles") // statt "admin_links"
     .select("title,excerpt,image_url,url,published")
     .eq("id", params.id)
-    .single();
+    .maybeSingle();
 
-  if (!row || row.published !== true) return { robots: { index: false, follow: false } };
+  if (!row || row.published !== true) {
+    return { robots: { index: false, follow: false }, title: "News" };
+  }
 
   const title = row.title ?? "News";
   const description = row.excerpt ?? undefined;
@@ -31,13 +34,17 @@ export async function generateMetadata({ params }: { params: { id: string } }) {
   };
 }
 
-export default async function NewsDetail({ params }: { params: { id: string } }) {
+type Params = { params: Promise<{ id: string }> }; // Next 15: params ist Promise
+
+export default async function NewsDetail({ params }: Params) {
+  const { id } = await params;
   const supabase = await getSupabaseServer();
+
   const { data: row } = await supabase
-    .from("admin_links")
+    .from("site_articles") // statt "admin_links"
     .select("id,title,excerpt,image_url,url,tags,created_at,published,featured")
-    .eq("id", params.id)
-    .single();
+    .eq("id", id)
+    .maybeSingle();
 
   if (!row || row.published !== true) notFound();
 
@@ -54,13 +61,13 @@ export default async function NewsDetail({ params }: { params: { id: string } })
 
       <div className="flex flex-wrap gap-2">
         {(row.tags ?? []).map((t: string) => (
-          <a
+          <Link
             key={t}
-            href={`/tags/${encodeURIComponent(t.toLowerCase())}`}
-            className="text-xs rounded-full border px-2 py-0.5"
+            href={`/search?q=${encodeURIComponent(t)}`}
+            className="text-xs rounded-full border px-2 py-0.5 hover:bg-gray-50"
           >
             {t}
-          </a>
+          </Link>
         ))}
       </div>
 

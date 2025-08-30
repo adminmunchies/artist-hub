@@ -1,170 +1,120 @@
+// app/(public)/artists/page.tsx
 import Link from "next/link";
-import { getSupabaseServer } from "@/lib/supabaseServer";
-import { routes } from "@/lib/routes";
 import SearchBox from "./SearchBox";
+import TagLink from "@/components/TagLink";
+import { getSupabaseServer } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Artist = {
+type Row = {
   id: string;
   name: string | null;
-  city?: string | null;
-  avatar_url?: string | null;
-  disciplines?: string[] | null;
-  tags?: string[] | null;
+  city: string | null;
+  avatar_url: string | null;
+  disciplines: string[] | null;
+  tags: string[] | null;
 };
 
-type ArtistNews = {
-  id: string;
-  url: string;
-  title: string | null;
-  artist_id: string | null;
-  published: boolean | null;
-};
-
-function normalize(str: unknown) {
-  return String(str || "")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
+function norm(s?: string | null) {
+  return (s ?? "").toLowerCase();
 }
 
-// ⬇️ WICHTIG: searchParams ist ein Promise, wir awaiten es
 export default async function ArtistsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string }>;
 }) {
-  const sp = await searchParams;
-  const qRaw = (sp?.q ?? "").trim();
-  const q = normalize(qRaw);
+  const { q } = await searchParams;
+  const needle = (q ?? "").trim().toLowerCase();
 
   const supabase = await getSupabaseServer();
-
-  // 1) Künstler holen (reichlich, wir filtern im Code)
-  const { data: artistsAll } = await supabase
+  const { data } = await supabase
     .from("artists")
     .select("id,name,city,avatar_url,disciplines,tags")
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(60);
 
-  const artists = artistsAll ?? [];
+  const all = (data ?? []) as Row[];
 
-  // 2) Wenn Query, auch letzte Artist-News laden (für Relevanz)
-  let newsByArtist = new Map<string, ArtistNews[]>();
-  if (q) {
-    const { data: news } = await supabase
-      .from("artist_news")
-      .select("id,url,title,artist_id,published")
-      .eq("published", true)
-      .order("created_at", { ascending: false })
-      .limit(300);
-
-    (news ?? []).forEach((n) => {
-      if (!n.artist_id) return;
-      const arr = newsByArtist.get(n.artist_id) ?? [];
-      arr.push(n);
-      newsByArtist.set(n.artist_id, arr);
-    });
-  }
-
-  // 3) Filtern (Name, City, Disciplines, Tags) + News
-  const filtered = q
-    ? artists.filter((a) => {
+  const rows = needle
+    ? all.filter((a) => {
         const hay = [
-          a.name,
-          a.city,
-          ...(a.disciplines ?? []),
-          ...(a.tags ?? []),
-        ]
-          .map(normalize)
-          .join(" ");
-
-        const hitArtistFields = hay.includes(q);
-
-        let hitNews = false;
-        const newsArr = newsByArtist.get(a.id) ?? [];
-        for (const n of newsArr) {
-          const nx = normalize(n.title) + " " + normalize(n.url);
-          if (nx.includes(q)) {
-            hitNews = true;
-            break;
-          }
-        }
-
-        return hitArtistFields || hitNews;
+          norm(a.name),
+          norm(a.city),
+          ...(a.disciplines ?? []).map((x) => x.toLowerCase()),
+          ...(a.tags ?? []).map((x) => x.toLowerCase()),
+        ].join(" • ");
+        return hay.includes(needle);
       })
-    : artists.slice(0, 4);
+    : all;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      <h1 className="text-2xl font-semibold mb-4">Artists</h1>
+      <h1 className="text-3xl font-semibold mb-4">Artists</h1>
 
-      <SearchBox />
+      <div className="mb-6">
+        <SearchBox />
+      </div>
 
-      {qRaw ? (
-        <p className="mb-4 text-sm text-gray-600">
-          Showing results for <span className="font-medium">“{qRaw}”</span> —{" "}
-          {filtered.length} artist{filtered.length === 1 ? "" : "s"}
-        </p>
-      ) : (
-        <p className="mb-4 text-sm text-gray-600">
-          Latest artists (4). Use the search to find by name, city, disciplines,
-          or tags.
+      {needle && (
+        <p className="text-sm text-gray-500 mb-4">
+          Query: <span className="font-medium">{q}</span> • {rows.length} result
+          {rows.length === 1 ? "" : "s"}
         </p>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-        {filtered.map((a: Artist) => (
-          <Link
-            key={a.id}
-            href={routes.artistPublic(a.id)}
-            className="rounded-2xl border overflow-hidden hover:shadow-md transition"
-            prefetch={false}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={a.avatar_url || "/file.svg"}
-              alt={a.name ?? "Artist"}
-              className="h-44 w-full object-cover"
-              loading="lazy"
-            />
-            <div className="px-3 py-2">
-              <div className="font-medium truncate">
-                {a.name ?? "Unnamed Artist"}
-              </div>
-              {a.city ? (
-                <div className="text-sm text-gray-500">{a.city}</div>
-              ) : null}
-              {(a.disciplines && a.disciplines.length > 0) ||
-              (a.tags && a.tags.length > 0) ? (
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {(a.disciplines ?? []).slice(0, 3).map((d) => (
-                    <span
-                      key={`d-${d}`}
-                      className="text-xs rounded-full border px-2 py-0.5"
-                    >
-                      {d}
-                    </span>
-                  ))}
-                  {(a.tags ?? []).slice(0, 3).map((t) => (
-                    <span
-                      key={`t-${t}`}
-                      className="text-xs rounded-full border px-2 py-0.5"
-                    >
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </Link>
-        ))}
-      </div>
+      {rows.length === 0 ? (
+        <p className="text-gray-600">No artists match your search.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {rows.map((a) => {
+            const hasChips =
+              (a.disciplines && a.disciplines.length > 0) ||
+              (a.tags && a.tags.length > 0);
 
-      {filtered.length === 0 && (
-        <p className="mt-8 text-gray-600">No artists match your search.</p>
+            return (
+              <article
+                key={a.id}
+                className="rounded-2xl border overflow-hidden hover:shadow-sm transition"
+              >
+                {/* Klickbarer Bereich (KEINE TagLinks hier rein!) */}
+                <Link
+                  href={`/a/${a.id}`}
+                  className="block"
+                  prefetch={false}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={a.avatar_url || "https://placehold.co/800x600?text=Artist"}
+                    alt={a.name ?? "Artist"}
+                    className="h-56 w-full object-cover"
+                  />
+                  <div className="p-3">
+                    <div className="text-lg font-medium">
+                      {a.name ?? "Artist"}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      {a.city ?? ""}
+                    </div>
+                  </div>
+                </Link>
+
+                {/* Chips separat unter dem Link, damit keine <a> in <a> liegt */}
+                {hasChips && (
+                  <div className="p-3 pt-0 border-t flex flex-wrap gap-2">
+                    {(a.disciplines ?? []).slice(0, 5).map((d) => (
+                      <TagLink key={`d-${a.id}-${d}`} tag={d} />
+                    ))}
+                    {(a.tags ?? []).slice(0, 5).map((t) => (
+                      <TagLink key={`t-${a.id}-${t}`} tag={t} />
+                    ))}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
       )}
     </main>
   );
