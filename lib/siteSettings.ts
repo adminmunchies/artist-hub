@@ -1,14 +1,30 @@
-// lib/siteSettings.ts
-export const siteSettings = {
-    website: process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.munchiesart.club",
-    footerLogo: process.env.NEXT_PUBLIC_FOOTER_LOGO ?? "/munchies-logo.svg",
-  
-    instagram: process.env.NEXT_PUBLIC_INSTAGRAM_URL ?? "https://www.instagram.com/munchiesartclub",
-    bluesky: process.env.NEXT_PUBLIC_BLUESKY_URL ?? "https://bsky.app/profile/catapultart.bsky.social",
-    youtube: process.env.NEXT_PUBLIC_YOUTUBE_URL ?? "https://www.youtube.com/@catapultartists",
-    tiktok: process.env.NEXT_PUBLIC_TIKTOK_URL ?? "",
-  
-    privacy: process.env.NEXT_PUBLIC_PRIVACY_URL ?? "/privacy",
-    terms: process.env.NEXT_PUBLIC_TERMS_URL ?? "/terms",
-  } as const;
-  
+import { getSupabaseServer } from "@/lib/supabaseServer";
+
+export type SiteSettings = {
+  id: number;
+  website_url: string | null;
+  footer_tagline: string | null;
+  footer_logo_url: string | null;
+  instagram_url: string | null;
+  bluesky_url: string | null;
+  youtube_url: string | null;
+  tiktok_url: string | null;
+  privacy_url: string | null;
+  terms_url: string | null;
+  ask_kurt_url: string | null;
+  ask_kurt_image_url: string | null;
+  artist_submit_url: string | null;
+  artist_submit_image_url: string | null;
+};
+
+export async function getSiteSettings(): Promise<SiteSettings | null> {
+  const supabase = await getSupabaseServer();
+  const { data } = await supabase
+    .from("site_settings")
+    .select("*")
+    .eq("id", 1)
+    .maybeSingle();
+
+  return (data ?? null) as SiteSettings | null;
+}
+
