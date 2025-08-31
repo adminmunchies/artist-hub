@@ -1,28 +1,30 @@
 import type { Metadata } from "next"
 import { SITE_URL } from "@/lib/site"
 
-const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/, "")
-export function tagMeta(slug: string, human?: string): Metadata {
-  const label = human || slug.replace(/-/g, " ")
-  const title = `Tag: ${label} – Munchies Art Club`
-  const description = `Explore artists, works and news tagged with “${label}”.`
+export async function tagMeta(slug: string): Promise<Metadata> {
+  const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
+  const pretty = slug.split("-").map(s => s.charAt(0).toUpperCase()+s.slice(1)).join(" ")
+  const title = `Tag: ${pretty} – Munchies Art Club`
+  const description = `Artists and works related to “${pretty}”.`
   const canonical = `${base}/tag/${slug}`
+  const ogImage = `${base}/api/og/tag/${slug}`
+
   return {
     title,
     description,
     alternates: { canonical },
     openGraph: {
-      type: "website",
-      url: canonical,
       title,
       description,
-      images: [{ url: `${base}/og-default.png` }],
+      url: canonical,
+      siteName: "Munchies Art Club",
+      images: [{ url: ogImage, width: 1200, height: 630 }]
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [`${base}/og-default.png`],
-    },
+      images: [ogImage]
+    }
   }
 }
