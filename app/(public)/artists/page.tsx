@@ -9,40 +9,71 @@ type Artist = { id: string; name: string | null; updated_at?: string | null; cre
 
 function norm(s: string) { return s.trim().toLowerCase() }
 
+// zieht aus Strings/Arrays/Objekten alle sinnvollen Textwerte (rekursiv)
+function collectTexts(v: any, out: string[] = []): string[] {
+  if (v == null) return out
+  const push = (x: any) => { if (x != null) out.push(String(x).toLowerCase()) }
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") { push(v); return out }
+  if (Array.isArray(v)) { v.forEach(x => collectTexts(x, out)); return out }
+  if (typeof v === "object") {
+    const keysPref = ["slug","name","title","label","value","text"]
+    keysPref.forEach(k => { if (k in v) push((v as any)[k]) })
+    Object.values(v).forEach(x => collectTexts(x, out))
+    return out
+  }
+  return out
+}
+
 async function fetchArtistsByName(q: string): Promise<Artist[]> {
   const supa = await getSupabaseServer()
-  const { data } = await supa.from("artists").select("id,name,updated_at,created_at").ilike("name", `%${q}%`).limit(100)
+  const { data } = await supa
+    .from("artists")
+    .select("id,name,updated_at,created_at")
+    .ilike("name", `%${q}%`)
+    .limit(100)
   return data ?? []
 }
 
 async function fetchArtistsByWorksMeta(q: string): Promise<Artist[]> {
   const supa = await getSupabaseServer()
   const n = norm(q)
+
+  // hol (veröffentliche) Works – mit Feldern, die typischerweise Texte/Tags enthalten
   const { data: works } = await supa
     .from("works")
     .select("artist_id,tags,title,medium,materials,published")
     .eq("published", true)
-    .limit(2000)
+    .limit(3000)
 
-  const ids = Array.from(new Set((works ?? []).filter((w: any) => {
-    const pool: string[] = []
-    if (Array.isArray(w?.tags)) pool.push(...(w.tags as any[]).map(x => String(x).toLowerCase()))
-    ;["title","medium","materials"].forEach(k => {
-      const v = (w as any)?.[k]
-      if (typeof v === "string") pool.push(v.toLowerCase())
-      else if (Array.isArray(v)) pool.push(...(v as any[]).map(x => String(x).toLowerCase()))
+  const artistIds = Array.from(new Set((works ?? [])
+    .filter((w: any) => {
+      const pool: string[] = []
+      collectTexts(w?.tags, pool)
+      collectTexts(w?.title, pool)
+      collectTexts(w?.medium, pool)
+      collectTexts(w?.materials, pool)
+      return pool.some(s => s.includes(n))
     })
-    return pool.some(s => s.includes(n))
-  }).map((w: any) => w?.artist_id).filter(Boolean)))
+    .map((w: any) => w?.artist_id)
+    .filter(Boolean)
+  ))
 
-  if (ids.length === 0) return []
-  const { data: artists } = await supa.from("artists").select("id,name,updated_at,created_at").in("id", ids).limit(1000)
+  if (artistIds.length === 0) return []
+  const { data: artists } = await supa
+    .from("artists")
+    .select("id,name,updated_at,created_at")
+    .in("id", artistIds)
+    .limit(1000)
   return artists ?? []
 }
 
 async function fetchDefaultArtists(): Promise<Artist[]> {
   const supa = await getSupabaseServer()
-  const { data } = await supa.from("artists").select("id,name,updated_at,created_at").order("updated_at", { ascending: false }).limit(50)
+  const { data } = await supa
+    .from("artists")
+    .select("id,name,updated_at,created_at")
+    .order("updated_at", { ascending: false })
+    .limit(50)
   return data ?? []
 }
 
@@ -51,11 +82,12 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
   const title = q ? `Artists tagged or matching “${q}” – Munchies Art Club` : "Artists – Munchies Art Club"
   const description = q
-    ? `Search results for “${q}”: artists whose names or works relate to this query. Curated by Munchies Art Club.`
-    : "Browse contemporary artists on Munchies Art Club. Curated profiles, works, and news."
+    ? `Search results for “${q}”: artists whose names or works relate to this query.`
+    : "Browse contemporary artists on Munchies Art Club."
   const canonical = q ? `${base}/artists?q=${encodeURIComponent(q.trim())}` : `${base}/artists`
   return {
-    title, description, alternates: { canonical },
+    title, description,
+    alternates: { canonical },
     openGraph: { title, description, url: canonical, type: "website" },
     twitter: { card: "summary", title, description },
   }
@@ -75,7 +107,9 @@ export default async function ArtistsPage({ searchParams }: { searchParams: Prom
     items = await fetchDefaultArtists()
   }
 
-  const list = items.map((a, i) => ({ "@type":"ListItem", position:i+1, url: `${base}/a/${a.id}`, name: a.name ?? `Artist ${a.id}` }))
+  const list = items.map((a, i) => ({
+    "@type":"ListItem", position:i+1, url:`${base}/a/${a.id}`, name:a.name ?? `Artist ${a.id}`
+  }))
   const jsonld = q && q.trim()
     ? { "@context":"https://schema.org","@type":"SearchResultsPage","name":`Search results for “${q}”`,"mainEntity":{ "@type":"ItemList","itemListElement":list } }
     : { "@context":"https://schema.org","@type":"CollectionPage","name":"Artists","mainEntity":{ "@type":"ItemList","itemListElement":list } }
@@ -85,7 +119,9 @@ export default async function ArtistsPage({ searchParams }: { searchParams: Prom
       <script type="application/ld+json" suppressHydrationWarning dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }} />
       <h1 className="text-2xl font-semibold mb-3">{q && q.trim() ? <>Artists matching “{q}”</> : <>Artists</>}</h1>
       <p className="text-sm opacity-70 mb-6">
-        {q && q.trim() ? <>Results are based on artist names and tags in published works.</> : <>Recently updated artist profiles.</>}
+        {q && q.trim()
+          ? <>Results are based on artist names and tags in published works.</>
+          : <>Recently updated artist profiles.</>}
       </p>
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {items.map(a => (
