@@ -50,41 +50,57 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ;(articles ?? []).forEach((s: any) => urls.push({ url: `${base}/an/${s.id}`, lastModified: last(s), changeFrequency: "weekly", priority: 0.6 }))
   ;(news ?? []).forEach   ((n: any) => urls.push({ url: `${base}/news/${n.id}`,lastModified: last(n), changeFrequency: "weekly", priority: 0.6 }))
 
-  // ---- Tag-Ernte (Works / News / Artists) ----
+  // ---- Tag-Ernte aus Works / Artist-News / Site-Articles / Artists ----
   type TMeta = { count: number; last: Date }
   const tagMap = new Map<string, TMeta>()
-  const addTag = (raw: any, when: Date) => {
+  const counts = { worksTags:0, newsTags:0, newsTitle:0, siteTags:0, siteTitle:0, artistFields:0 }
+
+  const addTag = (raw: any, when: Date, counterKey?: keyof typeof counts) => {
     const slug = toSlug(raw)
     if (!slug) return
     const cur = tagMap.get(slug)
     if (!cur) tagMap.set(slug, { count: 1, last: when })
     else tagMap.set(slug, { count: cur.count + 1, last: cur.last > when ? cur.last : when })
+    if (counterKey) counts[counterKey]++
   }
 
-  // Works: tags (wenn vorhanden)
+  // Works: tags
   ;(works ?? []).forEach((w: any) => {
     const lm = last(w)
-    collectFromKeys(w, ["tags"]).forEach(t => addTag(t, lm))
+    collectFromKeys(w, ["tags"]).forEach(t => addTag(t, lm, "worksTags"))
   })
 
-  // Artist News: wenn tags fehlen, Phrasen aus dem Titel verwenden (z. B. "Parallel Vienna", "Kogo Gallery")
+  // Artist News: tags, sonst Titel-Phrasen (2+ Wörter, Capitalized)
   ;(news ?? []).forEach((n: any) => {
     const lm = last(n)
     const pool = collectFromKeys(n, ["tags"])
     if (pool.length > 0) {
-      pool.forEach(t => addTag(t, lm))
+      pool.forEach(t => addTag(t, lm, "newsTags"))
     } else if (typeof n?.title === "string") {
       const candidates = (n.title as string).match(/\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z0-9]+)+)\b/g) || []
-      candidates.forEach(t => addTag(t, lm))
+      candidates.forEach(t => addTag(t, lm, "newsTitle")) // z.B. "Parallel Vienna", "Kogo Gallery"
     }
   })
 
-  // Artists: disciplines (+ optional tags, falls existieren)
-  ;(artists ?? []).forEach((a: any) => {
-    const lm = last(a)
-    collectFromKeys(a, ["disciplines","tags"]).forEach(t => addTag(t, lm))
+  // Site Articles (Editor Picks): tags, sonst Titel-Phrasen
+  ;(articles ?? []).forEach((s: any) => {
+    const lm = last(s)
+    const pool = collectFromKeys(s, ["tags"])
+    if (pool.length > 0) {
+      pool.forEach(t => addTag(t, lm, "siteTags"))
+    } else if (typeof s?.title === "string") {
+      const candidates = (s.title as string).match(/\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z0-9]+)+)\b/g) || []
+      candidates.forEach(t => addTag(t, lm, "siteTitle"))
+    }
   })
 
+  // Artists: disciplines (+ optional tags)
+  ;(artists ?? []).forEach((a: any) => {
+    const lm = last(a)
+    collectFromKeys(a, ["disciplines","tags"]).forEach(t => addTag(t, lm, "artistFields"))
+  })
+
+  // Auswahl & Ausgabe
   const totalTags = tagMap.size
   const minCount = totalTags > 200 ? 2 : 1
   const tagEntries = Array.from(tagMap.entries())
@@ -106,6 +122,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     admin_articles: (articles ?? []).length,
     artist_news: (news ?? []).length,
     tags: tagEntries.length,
+    sources: counts,
   })
 
   return urls
