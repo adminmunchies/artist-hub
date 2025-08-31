@@ -3,116 +3,98 @@ import { SITE_URL } from "@/lib/site"
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin"
 
 export const runtime = "nodejs"
-export const revalidate = 300
 
-const baseUrl = (SITE_URL ?? "http://localhost:3000").replace(/\/$/, "")
-const pageSize = 20
-
-type Search = { page?: string }
-
-async function fetchNewsPage(p: number) {
-  const supabase = await getSupabaseAdmin()
-  const from = (p - 1) * pageSize
-  const to = from + pageSize - 1
-  const { data, error, count } = await supabase
-    .from("artist_news")
-    .select("*", { count: "exact" })
-    .eq("published", true)
-    .order("created_at", { ascending: false })
-    .range(from, to)
-  if (error) return { items: [], count: 0 }
-  return { items: (data ?? []) as any[], count: count ?? 0 }
+const toAbs = (base: string, path?: string | null) => {
+  if (!path) return `${base}/og-default.png`
+  if (/^https?:\/\//i.test(path)) return path
+  return `${base}${path.startsWith("/") ? "" : "/"}${path}`
 }
 
-const abs = (u?: string) => {
-  if (!u) return `${baseUrl}/og-default.png`
-  if (/^https?:\/\//i.test(u)) return u
-  return `${baseUrl}${u.startsWith("/") ? "" : "/"}${u}`
-}
-
-
-export default async function Page(
-  { searchParams }: { searchParams: Promise<Search> }
-) {
-  const { page } = await searchParams
-  const p = Math.max(1, Number(page) || 1)
-  const { items, count } = await fetchNewsPage(p)
-  const totalPages = Math.max(1, Math.ceil(count / pageSize))
-
-  const list = items.map((n, i) => ({
-    "@type": "ListItem",
-    position: (p - 1) * pageSize + i + 1,
-    url: `${baseUrl}/news/${n.id}`,
-    name: n.title ?? n.id
-  }))
-
-  const jsonld = {
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    "name": "Artist News",
-    "mainEntity": { "@type": "ItemList", "itemListElement": list }
-  }
-
-  const prevHref = p > 1 ? (p - 1 === 1 ? "/news" : `/news?page=${p - 1}`) : null
-  const nextHref = p < totalPages ? `/news?page=${p + 1}` : null
-
-  return (
-    <main className="mx-auto max-w-4xl px-4 py-10">
-      <script type="application/ld+json" suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }} />
-      <h1 className="text-2xl font-semibold mb-4">Artist News</h1>
-
-      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {items.map((n: any) => (
-          <li key={n.id} className="border rounded-xl p-4">
-            <a href={`/news/${n.id}`} className="font-medium underline">
-              {n.title ?? n.id}
-            </a>
-          </li>
-        ))}
-        {items.length === 0 && <li className="opacity-70">No news yet.</li>}
-      </ul>
-
-      {(prevHref || nextHref) && (
-        <nav className="flex items-center gap-3 mt-8">
-          {prevHref
-            ? <a className="px-3 py-1 rounded border" href={prevHref}>← Prev</a>
-            : <span className="px-3 py-1 rounded border opacity-50">← Prev</span>}
-          <span className="px-3 py-1 rounded border">Page {p} / {totalPages}</span>
-          {nextHref
-            ? <a className="px-3 py-1 rounded border" href={nextHref}>Next →</a>
-            : <span className="px-3 py-1 rounded border opacity-50">Next →</span>}
-        </nav>
-      )}
-    </main>
-  )
-}
-
-/** SEO: canonical + OG/Twitter abhängig von ?page= */
-import type { Metadata } from "next"
-
-export async function generateMetadata({ searchParams }:{ searchParams?: { page?: string } }): Promise<Metadata> {
+/** OG + Canonical für /news */
+export async function generateMetadata(): Promise<Metadata> {
   const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
-  const pRaw = (searchParams?.page ?? "1").trim()
-  const page = Math.max(1, Number.isFinite(+pRaw) ? +pRaw : 1)
-
-  const canonical = page > 1 ? `${base}/news?page=${page}` : `${base}/news`
-  const title = page > 1 ? `Artist News – Page ${page} – Munchies Art Club` : `Artist News – Munchies Art Club`
-  const description = "Latest artist news and editor articles from Munchies Art Club."
-  const og = "/api/og/news"
-
+  const title = "Artist News"
+  const description = "Latest artist news and editor articles."
   return {
     title,
     description,
-    alternates: { canonical },
+    alternates: { canonical: `${base}/news` },
     openGraph: {
-      title, description, url: canonical, siteName: "Munchies Art Club",
-      images: [{ url: og, width: 1200, height: 630 }]
+      title, description, url: `${base}/news`,
+      siteName: "Munchies Art Club",
+      images: [{ url: "/api/og/news", width: 1200, height: 630 }],
     },
-    twitter: {
-      card: "summary_large_image",
-      title, description,
-      images: [og]
-    }
+    twitter: { card: "summary_large_image", title, description, images: ["/api/og/news"] },
   }
+}
+
+const PAGE_SIZE = 12
+
+export default async function Page({ searchParams }: { searchParams: { page?: string } }) {
+  const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
+  const page = Math.max(1, Number.parseInt(searchParams?.page || "1") || 1)
+  const from = (page - 1) * PAGE_SIZE
+  const to   = from + PAGE_SIZE - 1
+
+  const supabase = await getSupabaseAdmin()
+  const { data: rows = [] } = await supabase
+    .from("artist_news")
+    .select("id, title, created_at, cover_image, og_image, images")
+    .eq("published", true)
+    .order("created_at", { ascending: false })
+    .range(from, to)
+
+  const pickImage = (r: any) => {
+    const img = r?.cover_image || r?.og_image || (Array.isArray(r?.images) ? r.images[0] : null)
+    return toAbs(base, img)
+  }
+
+  const hasMore = rows.length === PAGE_SIZE
+
+  // JSON-LD (CollectionPage)
+  const list = rows.map((n: any, i: number) => ({
+    "@type":"ListItem", position: i + 1, url:`${base}/news/${n.id}`, name: n.title ?? n.id
+  }))
+  const jsonld = { "@context":"https://schema.org", "@type":"CollectionPage",
+    "name":"Artist News", "mainEntity":{ "@type":"ItemList", "itemListElement":list } }
+
+  return (
+    <main className="mx-auto max-w-6xl px-4 py-10">
+      <script type="application/ld+json" suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }} />
+
+      <h1 className="text-2xl font-semibold mb-6">Artist News</h1>
+
+      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {rows.map((n: any) => (
+          <li key={n.id} className="border rounded-2xl overflow-hidden hover:shadow-md transition">
+            <a href={`/news/${n.id}`} className="block">
+              <div className="aspect-[16/10] bg-neutral-100 overflow-hidden">
+                <img src={pickImage(n)} alt={n?.title ?? "News"}
+                     className="w-full h-full object-cover" loading="lazy" />
+              </div>
+              <div className="p-4">
+                <h3 className="font-medium"
+                    style={{display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden"}}>
+                  {n?.title ?? n.id}
+                </h3>
+                <p className="opacity-60 text-sm mt-1">
+                  {new Date(n?.created_at || Date.now()).toLocaleDateString()}
+                </p>
+              </div>
+            </a>
+          </li>
+        ))}
+        {rows.length === 0 && <li className="opacity-70">No news found.</li>}
+      </ul>
+
+      {hasMore && (
+        <div className="mt-8 text-center">
+          <a href={`/news?page=${page+1}`} className="inline-block px-4 py-2 border rounded-xl">
+            Load more
+          </a>
+        </div>
+      )}
+    </main>
+  )
 }
