@@ -9,7 +9,7 @@ export default function PublicTemplate({ children }: { children: React.ReactNode
     "name": "Munchies Art Club",
     "potentialAction": {
       "@type": "SearchAction",
-      "target": `${base}/artists?q={search_term_string}`,
+      "target": `${base}/search?q={search_term_string}`,
       "query-input": "required name=search_term_string"
     }
   }
