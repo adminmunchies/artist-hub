@@ -1,12 +1,18 @@
-// app/(public)/layout.tsx
-import PublicNavbar from "@/app/_components/PublicNavbar";
+import type { Metadata } from "next"
 
-export default function PublicLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen">
-      <PublicNavbar />
-      {children}
-    </div>
-  );
+export const metadata: Metadata = {
+  robots: {
+    index: true,
+    follow: true,
+    maxImagePreview: "large",
+  },
+  alternates: {
+    types: {
+      "application/rss+xml": "/rss.xml",
+    },
+  },
 }
 
+export default function PublicLayout({ children }: { children: React.ReactNode }) {
+  return <>{children}</>
+}
