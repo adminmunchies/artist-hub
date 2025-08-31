@@ -1,81 +1,111 @@
-// app/(public)/news/[id]/page.tsx
+import type { Metadata } from "next";
 import Link from "next/link";
-import { getSupabaseServer } from "@/lib/supabaseServer";
 import { notFound } from "next/navigation";
+import { getSupabaseServer } from "@/lib/supabaseServer";
+import { SITE_URL, toAbsolute } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const BASE = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+type Params = { params: Promise<{ id: string }> };
 
-export async function generateMetadata({ params }: { params: { id: string } }) {
-  const supabase = await getSupabaseServer();
-  const { data: row } = await supabase
-    .from("site_articles") // statt "admin_links"
-    .select("title,excerpt,image_url,url,published")
-    .eq("id", params.id)
-    .maybeSingle();
+type Article = {
+  id: string;
+  title: string | null;
+  excerpt: string | null;
+  body_html: string | null;
+  image_url: string | null;
+  url: string | null;
+  published: boolean | null;
+  created_at: string | null;
+};
 
-  if (!row || row.published !== true) {
-    return { robots: { index: false, follow: false }, title: "News" };
-  }
-
-  const title = row.title ?? "News";
-  const description = row.excerpt ?? undefined;
-  const images = row.image_url ? [row.image_url] : [];
-
-  return {
-    title,
-    description,
-    alternates: { canonical: `${BASE}/news/${params.id}` },
-    openGraph: { title, description, images, url: `${BASE}/news/${params.id}` },
-    twitter: { card: images.length ? "summary_large_image" : "summary", title, description, images },
-    robots: { index: true, follow: true },
-  };
-}
-
-type Params = { params: Promise<{ id: string }> }; // Next 15: params ist Promise
-
-export default async function NewsDetail({ params }: Params) {
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
   const supabase = await getSupabaseServer();
 
   const { data: row } = await supabase
-    .from("site_articles") // statt "admin_links"
-    .select("id,title,excerpt,image_url,url,tags,created_at,published,featured")
+    .from("site_articles")
+    .select("id,title,excerpt,image_url,published,created_at,url")
     .eq("id", id)
-    .maybeSingle();
+    .maybeSingle<Article>();
 
-  if (!row || row.published !== true) notFound();
+  const title = row?.title ?? "Article";
+  const description = row?.excerpt ?? "Article on Munchies Art Club";
+  const og = toAbsolute(row?.image_url) ?? `${SITE_URL}/og-default.png`;
+  const canonical = `${SITE_URL}/news/${id}`;
+
+  if (!row || row.published !== true) {
+    return { title, description, alternates: { canonical }, robots: { index: false, follow: false } };
+  }
+
+  return {
+    title,
+    description,
+    openGraph: { title, description, images: [og], url: canonical, type: "article" },
+    twitter: { card: "summary_large_image", title, description, images: [og] },
+    alternates: { canonical },
+  };
+}
+
+export default async function NewsPage({ params }: Params) {
+  const { id } = await params;
+  const supabase = await getSupabaseServer();
+
+  const { data: row } = await supabase
+    .from("site_articles")
+    .select("id,title,excerpt,body_html,image_url,published,created_at,url")
+    .eq("id", id)
+    .maybeSingle<Article>();
+
+  if (!row || row.published !== true) {
+    notFound();
+  }
+
+  const img = toAbsolute(row.image_url);
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    "@id": `${SITE_URL}/news/${id}`,
+    url: `${SITE_URL}/news/${id}`,
+    headline: row.title ?? "Article",
+    image: img ? [img] : undefined,
+    datePublished: row.created_at ?? undefined,
+    description: row.excerpt ?? "",
+    publisher: { "@type": "Organization", name: "Munchies Art Club" },
+    mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}/news/${id}` },
+    sameAs: row.url ? [row.url] : undefined,
+  };
 
   return (
-    <main className="max-w-3xl mx-auto px-4 py-10 space-y-6">
-      <h1 className="text-2xl font-semibold">{row.title || "News"}</h1>
+    <main className="mx-auto max-w-4xl px-6 py-8">
+      <h1 className="text-3xl font-semibold mb-4">{row.title ?? "Article"}</h1>
 
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      {row.image_url ? (
-        <img src={row.image_url} alt={row.title || "News"} className="w-full rounded-xl object-cover" />
+      {img ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={img} alt={row.title ?? "Article"} className="w-full rounded-xl border mb-6" />
       ) : null}
 
-      {row.excerpt ? <p className="text-gray-700">{row.excerpt}</p> : null}
+      {row.excerpt && <p className="text-gray-700 mb-4">{row.excerpt}</p>}
 
-      <div className="flex flex-wrap gap-2">
-        {(row.tags ?? []).map((t: string) => (
-          <Link
-            key={t}
-            href={`/search?q=${encodeURIComponent(t)}`}
-            className="text-xs rounded-full border px-2 py-0.5 hover:bg-gray-50"
-          >
-            {t}
-          </Link>
-        ))}
-      </div>
+      {row.body_html && (
+        <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: row.body_html }} />
+      )}
 
-      <div>
-        <a href={row.url} target="_blank" rel="noreferrer" className="underline">
-          Zur Quelle öffnen ↗
-        </a>
-      </div>
+      {row.url && (
+        <div className="mt-4">
+          <a href={row.url} target="_blank" rel="noreferrer" className="underline">
+            Zur Quelle öffnen ↗
+          </a>
+        </div>
+      )}
+
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
     </main>
   );
 }
