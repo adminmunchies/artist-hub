@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Artist Hub (MVP) — Next.js 15 + Supabase
 
-## Getting Started
+Public Artist Directory + Works + Admin Articles. SEO/AI-ready (robots, sitemap, JSON-LD).
+Tech stack: **Next.js 15 (App Router, TypeScript)**, **Supabase (DB/Auth/Storage, RLS)**, **Tailwind**.
 
-First, run the development server:
+## Status (MVP)
+- ✅ Public: `/artists`, `/a/[id]`, `/w/[id]`, `/an/[id]`
+- ✅ SEO: `app/robots.ts`, `app/sitemap.ts`, JSON-LD (Person/VisualArtwork/NewsArticle), OG/Twitter
+- ✅ Dashboard: Profile & Works (list/new/edit/delete), auth-guarded
+- ✅ Footer: liest `site_settings` (Links, Socials, Promos)
+- 🔜 Polish: VisualArtwork erweitern, NewsArticle `publisher.logo`, 404-Flows, Pagination
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Quickstart
+1. Requirements
+   - Node 20+, npm
+   - Supabase: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+   - NEXT_PUBLIC_SITE_URL (ohne Slash, z. B. https://www.munchiesart.club)
+2. ENV (.env.local)
+   NEXT_PUBLIC_SUPABASE_URL=…
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=…
+   NEXT_PUBLIC_SITE_URL=https://www.munchiesart.club
+3. Install & Run
+   npm i
+   npm run dev
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Projekt-Konventionen
+- 4-Blöcke-Workflow: Terminal → Files → After-change actions → Sanity checks
+- Admin-Writes: keine Server Actions; API-Routes oder Supabase Admin Client
+- Eine Änderung = ein Commit; Meilensteine taggen
+- Keine Heredocs in Pfaden mit Klammern (app/(public)/…): dort im Editor arbeiten
+- Supabase: lib/supabaseClient.ts (Browser, named export supabase), lib/supabaseServer.ts (Server helper)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## SEO & AI-Search
+- Robots: app/robots.ts (erlaubt Google-Extended, GPTBot, PerplexityBot)
+- Sitemap: app/sitemap.ts (Root, /artists, alle /a/*, /w/* published, /an/* published)
+- JSON-LD: /a/[id] Person (+knowsAbout/workExample), /w/[id] VisualArtwork, /an/[id] NewsArticle
+- OG/Twitter: generateMetadata, Fallback public/og-default.png
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Directory (Kurz)
+app/(public)/a/[id]/page.tsx
+app/(public)/w/[id]/page.tsx
+app/(public)/an/[id]/page.tsx
+app/(public)/artists/page.tsx
+app/sitemap.ts
+app/robots.ts
+components/TagLink.tsx, Footer.tsx
+lib/supabaseClient.ts, supabaseServer.ts, site.ts
+public/og-default.png
 
-## Learn More
+## Datenmodell
+artists(id,name,city,bio,instagram_url,website_url,avatar_url,disciplines[],tags[],updated_at)
+works(id,artist_id,title,description,published,created_at,updated_at,images…)
+site_articles(id,title,excerpt,body_html,image_url,published,updated_at)
+site_settings(footer/logo/socials/promos…)
 
-To learn more about Next.js, take a look at the following resources:
+## Sanity checks (lokal)
+curl -I http://localhost:3000/robots.txt | head -n1
+curl -I http://localhost:3000/sitemap.xml | head -n1
+curl -s http://localhost:3000/sitemap.xml | awk -F'/a/' '/\/a\//{split($2,a,"<"); print a[1]; exit}' > /tmp/aid.txt
+ARTIST_ID=$(cat /tmp/aid.txt)
+curl -s "http://localhost:3000/a/$ARTIST_ID" | grep -q 'application/ld+json' && echo "Artist JSON-LD ok" || echo "JSON-LD fehlt"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Troubleshooting
+- Konflikt robots.txt: keine public/robots.txt; nur app/robots.ts
+- 405 /robots.txt: route handler versehentlich genutzt → auf app/robots.ts umstellen
+- curl connect fail: Dev-Server starten (npm run dev)
+- zsh parse error bei $(): awk-Variante oben nutzen
+- OG leer: public/og-default.png anlegen bzw. absolut machen
