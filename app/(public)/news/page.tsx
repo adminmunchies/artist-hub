@@ -30,32 +30,6 @@ const abs = (u?: string) => {
   return `${baseUrl}${u.startsWith("/") ? "" : "/"}${u}`
 }
 
-export async function generateMetadata(
-  { searchParams }: { searchParams: Promise<Search> }
-): Promise<Metadata> {
-  const { page } = await searchParams
-  const p = Math.max(1, Number(page) || 1)
-  const title = p > 1 ? `Artist News – Page ${p}` : "Artist News"
-  const canonical = p > 1 ? `${baseUrl}/news?page=${p}` : `${baseUrl}/news`
-  return {
-    title,
-    description: "Latest artist news and updates curated by Munchies Art Club.",
-    alternates: { canonical },
-    openGraph: {
-      type: "website",
-      url: canonical,
-      title,
-      description: "Latest artist news and updates curated by Munchies Art Club.",
-      images: [{ url: abs("/og-default.png") }],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description: "Latest artist news and updates curated by Munchies Art Club.",
-      images: [abs("/og-default.png")],
-    },
-  }
-}
 
 export default async function Page(
   { searchParams }: { searchParams: Promise<Search> }
@@ -112,4 +86,34 @@ export default async function Page(
       )}
     </main>
   )
+}
+
+/** SEO: canonical + OG/Twitter abhängig von ?page= */
+import type { Metadata } from "next"
+import { SITE_URL } from "@/lib/site"
+
+export async function generateMetadata({ searchParams }:{ searchParams?: { page?: string } }): Promise<Metadata> {
+  const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
+  const pRaw = (searchParams?.page ?? "1").trim()
+  const page = Math.max(1, Number.isFinite(+pRaw) ? +pRaw : 1)
+
+  const canonical = page > 1 ? `${base}/news?page=${page}` : `${base}/news`
+  const title = page > 1 ? `Artist News – Page ${page} – Munchies Art Club` : `Artist News – Munchies Art Club`
+  const description = "Latest artist news and editor articles from Munchies Art Club."
+  const og = `${base}/api/og/news`
+
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      title, description, url: canonical, siteName: "Munchies Art Club",
+      images: [{ url: og, width: 1200, height: 630 }]
+    },
+    twitter: {
+      card: "summary_large_image",
+      title, description,
+      images: [og]
+    }
+  }
 }
