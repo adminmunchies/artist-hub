@@ -2,99 +2,93 @@ import type { Metadata } from "next"
 import { SITE_URL } from "@/lib/site"
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin"
 
-export const runtime = "nodejs"
+export const revalidate = 300
 
-const toAbs = (base: string, path?: string | null) => {
-  if (!path) return `${base}/og-default.png`
-  if (/^https?:\/\//i.test(path)) return path
-  return `${base}${path.startsWith("/") ? "" : "/"}${path}`
+function pickImg(row: any): string {
+  const imgs = Array.isArray(row?.images) ? row.images.filter(Boolean) : []
+  return imgs[0] || row?.cover_image || row?.og_image || "/og-default.png"
 }
 
-export async function generateMetadata(): Promise<Metadata> {
+export async function generateMetadata(
+  { searchParams }: { searchParams?: { page?: string } }
+): Promise<Metadata> {
   const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
+  const page = Number(searchParams?.page ?? "1") || 1
+  const canonical = `${base}/news${page>1 ? `?page=${page}` : ""}`
   const title = "Artist News"
-  const description = "Latest artist news and editor articles."
+  const description = "Latest artist news from Munchies Art Club."
+
   return {
-    title,
-    description,
-    alternates: { canonical: `${base}/news` },
+    title, description,
+    alternates: { canonical },
     openGraph: {
-      title, description, url: `${base}/news`,
-      siteName: "Munchies Art Club",
-      images: [{ url: "/api/og/news", width: 1200, height: 630 }],
+      title, description, url: canonical, siteName: "Munchies Art Club",
+      images: [{ url: "/api/og/news", width: 1200, height: 630 }]
     },
-    twitter: { card: "summary_large_image", title, description, images: ["/api/og/news"] },
+    twitter: { card: "summary_large_image", title, description, images: ["/api/og/news"] }
   }
 }
 
-const PAGE_SIZE = 12
-
-export default async function Page({ searchParams }: { searchParams: { page?: string } }) {
-  const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
-  const page = Math.max(1, Number.parseInt(searchParams?.page || "1") || 1)
-  const from = (page - 1) * PAGE_SIZE
-  const to   = from + PAGE_SIZE - 1
-
+async function fetchArtistNews(page: number, perPage = 12) {
   const supabase = await getSupabaseAdmin()
-  const { data, error } = await supabase
+  const from = (page - 1) * perPage
+  const to = from + perPage - 1
+
+  const { data, count, error } = await supabase
     .from("artist_news")
-    .select("id, title, created_at, cover_image, og_image, images")
+    .select("id,title,created_at,og_image,cover_image,images,description", { count: "exact" })
     .eq("published", true)
     .order("created_at", { ascending: false })
     .range(from, to)
 
-  // 💡 Null-safe array
-  const rows: any[] = Array.isArray(data) ? data : []
-  if (error) console.error("artist_news error:", error)
+  if (error) {
+    console.error("artist_news error:", { message: error.message, details: error.details, hint: error.hint })
+    return { items: [] as any[], total: 0 }
+  }
+  return { items: data ?? [], total: count ?? (data?.length ?? 0) }
+}
 
-  const pickImage = (r: any) => {
-    const img = r?.cover_image || r?.og_image || (Array.isArray(r?.images) ? r.images[0] : null)
-    return toAbs(base, img)
+export default async function Page({ searchParams }:{ searchParams?: { page?: string } }) {
+  const page = Math.max(1, Number(searchParams?.page ?? "1") || 1)
+  const { items: news, total } = await fetchArtistNews(page)
+  const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
+
+  // JSON-LD (CollectionPage + ItemList)
+  const list = news.map((n: any, i: number) => ({
+    "@type":"ListItem", position: i+1, url: `${base}/news/${n.id}`, name: n.title ?? `News ${n.id}`
+  }))
+  const jsonld = {
+    "@context":"https://schema.org",
+    "@type":"CollectionPage",
+    "name":"Artist News",
+    "mainEntity":{ "@type":"ItemList", "itemListElement": list }
   }
 
-  const hasMore = rows.length === PAGE_SIZE
-
-  const list = rows.map((n: any, i: number) => ({
-    "@type":"ListItem", position: i + 1, url:`${base}/news/${n.id}`, name: n.title ?? n.id
-  }))
-  const jsonld = { "@context":"https://schema.org", "@type":"CollectionPage",
-    "name":"Artist News", "mainEntity":{ "@type":"ItemList", "itemListElement":list } }
+  const perPage = 12
+  const hasNext = page * perPage < total
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10">
+    <main className="mx-auto max-w-5xl px-4 py-10">
       <script type="application/ld+json" suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }} />
 
       <h1 className="text-2xl font-semibold mb-6">Artist News</h1>
 
-      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {rows.map((n: any) => (
-          <li key={n.id} className="border rounded-2xl overflow-hidden hover:shadow-md transition">
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {news.map((n: any) => (
+          <li key={n.id} className="border rounded-xl overflow-hidden">
             <a href={`/news/${n.id}`} className="block">
-              <div className="aspect-[16/10] bg-neutral-100 overflow-hidden">
-                <img src={pickImage(n)} alt={n?.title ?? "News"}
-                     className="w-full h-full object-cover" loading="lazy" />
-              </div>
-              <div className="p-4">
-                <h3 className="font-medium"
-                    style={{display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden"}}>
-                  {n?.title ?? n.id}
-                </h3>
-                <p className="opacity-60 text-sm mt-1">
-                  {new Date(n?.created_at || Date.now()).toLocaleDateString()}
-                </p>
-              </div>
+              <img src={pickImg(n)} alt="" style={{ width:"100%", height:180, objectFit:"cover", display:"block" }} />
+              <div className="p-4 font-medium underline">{n.title ?? n.id}</div>
             </a>
           </li>
         ))}
-        {rows.length === 0 && <li className="opacity-70">No news found.</li>}
+        {news.length === 0 && <li className="opacity-70">No news found.</li>}
       </ul>
 
-      {hasMore && (
-        <div className="mt-8 text-center">
-          <a href={`/news?page=${page+1}`} className="inline-block px-4 py-2 border rounded-xl">
-            Load more
-          </a>
+      {hasNext && (
+        <div className="mt-6">
+          <a className="inline-block border rounded-xl px-4 py-2" href={`/news?page=${page+1}`}>Load more</a>
         </div>
       )}
     </main>
