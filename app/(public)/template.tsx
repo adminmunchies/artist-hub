@@ -1,4 +1,3 @@
-import Script from "next/script"
 import { SITE_URL } from "@/lib/site"
 
 export default function PublicTemplate({ children }: { children: React.ReactNode }) {
@@ -16,10 +15,9 @@ export default function PublicTemplate({ children }: { children: React.ReactNode
   }
   return (
     <>
-      <Script
-        id="website-jsonld"
+      <script
         type="application/ld+json"
-        strategy="beforeInteractive"
+        suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }}
       />
       {children}
