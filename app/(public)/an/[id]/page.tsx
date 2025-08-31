@@ -1,83 +1,126 @@
-import { notFound } from 'next/navigation'
-import type { Metadata } from 'next'
-import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
-import { SITE_URL } from '@/lib/site'
+// app/(public)/an/[id]/page.tsx
+import type { Metadata } from "next"
+import { notFound } from "next/navigation"
+import { SITE_URL } from "@/lib/site"
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin"
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+export const runtime = "nodejs"
+export const revalidate = 300
 
-type Row = Record<string, any>
+type Params = { id: string }
 
-async function fetchArticle(id: string): Promise<Row | null> {
-  const supa = await getSupabaseAdmin()
-  const { data } = await supa
-    .from('site_articles')
-    .select('*')
-    .eq('id', id)
-    .eq('published', true)
-    .single()
-  return data ?? null
+const baseUrl = (SITE_URL ?? "http://localhost:3000").replace(/\/$/, "")
+const toAbs = (u?: string) => {
+  if (!u) return `${baseUrl}/og-default.png`
+  if (/^https?:\/\//i.test(u)) return String(u)
+  return `${baseUrl}${u.startsWith("/") ? "" : "/"}${u}`
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+async function fetchArticle(id: string) {
+  const supabase = await getSupabaseAdmin()
+  const { data } = await supabase
+    .from("site_articles")
+    .select("*")
+    .eq("id", id)
+    .eq("published", true)
+    .single()
+  return data as any || null
+}
+
+export async function generateMetadata(
+  { params }: { params: Promise<Params> }
+): Promise<Metadata> {
   const { id } = await params
   const row = await fetchArticle(id)
   if (!row) return {}
-  const title = row.title ?? `Article ${id}`
-  const description = row.excerpt ?? row.description ?? ''
-  const base = (SITE_URL ?? '').replace(/\/$/, '')
-  const url = `${base}/an/${id}`
-  const image = row.og_image_url ?? `${base}/og-default.png`
+
+  const title = row.title ?? "Article"
+  const description = row.summary ?? row.excerpt ?? row.description ?? ""
+  const canonical = `${baseUrl}/an/${row.id}`
+  const img =
+    row.og_image ??
+    row.cover_image ??
+    (Array.isArray(row.images) && row.images[0]) ??
+    "/og-default.png"
+  const imgAbs = toAbs(img)
+
   return {
     title,
     description,
-    alternates: { canonical: url },
+    alternates: { canonical },
     openGraph: {
+      type: "article",
+      url: canonical,
       title,
       description,
-      url,
-      type: 'article',
-      images: [{ url: image }]
+      images: [{ url: imgAbs }],
+      publishedTime: row.created_at ?? undefined,
+      modifiedTime: row.updated_at ?? row.created_at ?? undefined,
     },
     twitter: {
-      card: 'summary_large_image',
+      card: "summary_large_image",
       title,
       description,
-      images: [image]
-    }
+      images: [imgAbs],
+    },
   }
 }
 
-export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+export default async function Page(
+  { params }: { params: Promise<Params> }
+) {
   const { id } = await params
   const row = await fetchArticle(id)
   if (!row) notFound()
 
-  const base = (SITE_URL ?? '').replace(/\/$/, '')
-  const image = row.og_image_url ?? `${base}/og-default.png`
-  const jsonld = {
-    '@context': 'https://schema.org',
-    '@type': 'Article',
-    headline: row.title ?? `Article ${id}`,
-    image: [image],
-    datePublished: row.created_at ?? null,
-    dateModified: row.updated_at ?? row.created_at ?? null,
-    author: row.author ?? 'Munchies Art Club',
-    description: row.excerpt ?? row.description ?? '',
-    mainEntityOfPage: `${base}/an/${id}`
+  const title = row.title ?? "Article"
+  const description = row.summary ?? row.excerpt ?? row.description ?? ""
+  const canonical = `${baseUrl}/an/${row.id}`
+
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
+    "headline": title,
+    "datePublished": row.created_at ?? undefined,
+    "dateModified": row.updated_at ?? row.created_at ?? undefined,
+    "author": row.author ? { "@type": "Person", name: row.author } : undefined,
+    "publisher": {
+      "@type": "Organization",
+      "name": "Munchies Art Club",
+      "logo": { "@type": "ImageObject", "url": toAbs("/publisher-logo.svg") }
+    },
+    "image": (() => {
+      const imgs: string[] = []
+      if (Array.isArray(row.images)) imgs.push(...row.images.map((x: string) => toAbs(x)))
+      if (row.cover_image) imgs.unshift(toAbs(row.cover_image))
+      if (row.og_image) imgs.unshift(toAbs(row.og_image))
+      return imgs.length ? Array.from(new Set(imgs)) : [toAbs("/og-default.png")]
+    })(),
+    "description": description || undefined
+  }
+
+  const crumbs = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", position: 1, name: "Home", item: baseUrl },
+      { "@type": "ListItem", position: 2, name: "Articles", item: `${baseUrl}/an` },
+      { "@type": "ListItem", position: 3, name: title, item: canonical }
+    ]
   }
 
   return (
-    <main>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }} />
-      <article className="prose mx-auto px-4 py-10">
-        <h1>{row.title ?? `Article ${id}`}</h1>
-        {row.excerpt ? <p>{row.excerpt}</p> : null}
-        {row.content_html ? (
-          <div dangerouslySetInnerHTML={{ __html: row.content_html as string }} />
-        ) : (
-          <pre className="whitespace-pre-wrap text-sm opacity-70">{JSON.stringify(row, null, 2)}</pre>
-        )}
+    <main className="mx-auto max-w-3xl px-4 py-10">
+      <script type="application/ld+json" suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }} />
+      <script type="application/ld+json" suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(crumbs) }} />
+
+      <article>
+        <h1 className="text-2xl font-semibold mb-4">{title}</h1>
+        {description && <p className="opacity-80 mb-6">{description}</p>}
+        {/* TODO: hier deinen eigentlichen Content/Images/Links rendern */}
       </article>
     </main>
   )
