@@ -1,5 +1,0 @@
-User-agent: *
-Disallow: /dashboard/
-Allow: /
-
-Sitemap: https://DEINE-DOMAIN.tld/sitemap.xml

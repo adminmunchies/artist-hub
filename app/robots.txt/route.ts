@@ -1,17 +1,17 @@
 import type { MetadataRoute } from "next";
 
+const ORIGIN =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "http://localhost:3000";
+
 export default function robots(): MetadataRoute.Robots {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-  const host = base.replace(/^https?:\/\//, "");
   return {
     rules: [
-      { userAgent: "*", allow: "/" },
+      { userAgent: "*", allow: "/", disallow: ["/api/", "/dashboard/", "/auth/"] },
       { userAgent: "Google-Extended", allow: "/" },
       { userAgent: "GPTBot", allow: "/" },
-      { userAgent: "PerplexityBot", allow: "/" },
       { userAgent: "CCBot", allow: "/" },
+      { userAgent: "PerplexityBot", allow: "/" }
     ],
-    sitemap: [`${base}/sitemap.xml`],
-    host,
+    sitemap: `${ORIGIN}/sitemap.xml`
   };
 }
