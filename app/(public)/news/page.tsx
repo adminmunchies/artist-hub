@@ -90,7 +90,6 @@ export default async function Page(
 
 /** SEO: canonical + OG/Twitter abhängig von ?page= */
 import type { Metadata } from "next"
-import { SITE_URL } from "@/lib/site"
 
 export async function generateMetadata({ searchParams }:{ searchParams?: { page?: string } }): Promise<Metadata> {
   const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
@@ -100,7 +99,7 @@ export async function generateMetadata({ searchParams }:{ searchParams?: { page?
   const canonical = page > 1 ? `${base}/news?page=${page}` : `${base}/news`
   const title = page > 1 ? `Artist News – Page ${page} – Munchies Art Club` : `Artist News – Munchies Art Club`
   const description = "Latest artist news and editor articles from Munchies Art Club."
-  const og = `${base}/api/og/news`
+  const og = "/api/og/news"
 
   return {
     title,
