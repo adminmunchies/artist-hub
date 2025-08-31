@@ -10,7 +10,6 @@ const toAbs = (base: string, path?: string | null) => {
   return `${base}${path.startsWith("/") ? "" : "/"}${path}`
 }
 
-/** OG + Canonical für /news */
 export async function generateMetadata(): Promise<Metadata> {
   const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
   const title = "Artist News"
@@ -37,12 +36,16 @@ export default async function Page({ searchParams }: { searchParams: { page?: st
   const to   = from + PAGE_SIZE - 1
 
   const supabase = await getSupabaseAdmin()
-  const { data: rows = [] } = await supabase
+  const { data, error } = await supabase
     .from("artist_news")
     .select("id, title, created_at, cover_image, og_image, images")
     .eq("published", true)
     .order("created_at", { ascending: false })
     .range(from, to)
+
+  // 💡 Null-safe array
+  const rows: any[] = Array.isArray(data) ? data : []
+  if (error) console.error("artist_news error:", error)
 
   const pickImage = (r: any) => {
     const img = r?.cover_image || r?.og_image || (Array.isArray(r?.images) ? r.images[0] : null)
@@ -51,7 +54,6 @@ export default async function Page({ searchParams }: { searchParams: { page?: st
 
   const hasMore = rows.length === PAGE_SIZE
 
-  // JSON-LD (CollectionPage)
   const list = rows.map((n: any, i: number) => ({
     "@type":"ListItem", position: i + 1, url:`${base}/news/${n.id}`, name: n.title ?? n.id
   }))
