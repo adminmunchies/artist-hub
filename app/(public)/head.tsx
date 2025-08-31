@@ -10,6 +10,7 @@ export default function Head() {
         title="Munchies Art Club — News & Articles"
         href={`${base}/rss.xml`}
       />
+      <meta name="robots" content="max-image-preview:large" />
     </>
   )
 }
