@@ -20,6 +20,7 @@ export default function PublicTemplate({ children }: { children: React.ReactNode
         suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }}
       />
+      <link rel="alternate" type="application/rss+xml" title="Munchies Art Club — RSS" href={`${base}/rss.xml`} />
       {children}
     </>
   )
