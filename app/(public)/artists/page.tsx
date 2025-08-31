@@ -8,7 +8,6 @@ export const revalidate = 0
 type Artist = {
   id: string
   name: string | null
-  slug?: string | null
   updated_at?: string | null
   created_at?: string | null
 }
@@ -27,30 +26,36 @@ async function fetchArtistsByName(q: string): Promise<Artist[]> {
   return data ?? []
 }
 
-async function fetchArtistsByTagHeuristic(q: string): Promise<Artist[]> {
+async function fetchArtistsByWorkTags(q: string): Promise<Artist[]> {
   const supa = await getSupabaseServer()
-  // Heuristik: Works holen und clientseitig Tags matchen; dann Artists dazu laden.
-  const { data: works } = await supa
+  const qLower = norm(q)
+
+  // 1) exaktes Tag-Matching (Array enthält q)
+  const { data: w1 } = await supa
     .from("works")
-    .select("artist_id,tags,published")
+    .select("artist_id")
     .eq("published", true)
-    .limit(1000)
-  const n = norm(q)
-  const artistIds = Array.from(
-    new Set(
-      (works ?? [])
-        .filter(w => Array.isArray(w?.tags) && (w?.tags as string[]).some(t => (t ?? "").toLowerCase().includes(n)))
-        .map(w => w?.artist_id)
-        .filter(Boolean) as string[]
-    )
-  )
+    .contains("tags", [q])
+    .limit(2000)
+
+  // 2) lowercase-Fallback (falls Tags gemischt geschrieben sind)
+  const { data: w2 } = await supa
+    .from("works")
+    .select("artist_id")
+    .eq("published", true)
+    .contains("tags", [qLower])
+    .limit(2000)
+
+  const artistIds = Array.from(new Set([...(w1 ?? []), ...(w2 ?? [])].map((w: any) => w?.artist_id).filter(Boolean)))
+
   if (artistIds.length === 0) return []
-  const { data: tagArtists } = await supa
+  const { data: artists } = await supa
     .from("artists")
     .select("id,name,updated_at,created_at")
     .in("id", artistIds)
     .limit(1000)
-  return tagArtists ?? []
+
+  return artists ?? []
 }
 
 async function fetchDefaultArtists(): Promise<Artist[]> {
@@ -79,17 +84,8 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
     title,
     description,
     alternates: { canonical },
-    openGraph: {
-      title,
-      description,
-      url: canonical,
-      type: "website",
-    },
-    twitter: {
-      card: "summary",
-      title,
-      description,
-    },
+    openGraph: { title, description, url: canonical, type: "website" },
+    twitter: { card: "summary", title, description },
   }
 }
 
@@ -99,12 +95,12 @@ export default async function ArtistsPage({ searchParams }: { searchParams: Prom
 
   let items: Artist[] = []
   if (q && q.trim()) {
-    const [byName, byTag] = await Promise.all([
+    const [byName, byTags] = await Promise.all([
       fetchArtistsByName(q),
-      fetchArtistsByTagHeuristic(q),
+      fetchArtistsByWorkTags(q),
     ])
     const map = new Map<string, Artist>()
-    ;[...byName, ...byTag].forEach(a => { if (a?.id) map.set(a.id, a) })
+    ;[...byName, ...byTags].forEach(a => { if (a?.id) map.set(a.id, a) })
     items = Array.from(map.values())
   } else {
     items = await fetchDefaultArtists()
@@ -118,32 +114,12 @@ export default async function ArtistsPage({ searchParams }: { searchParams: Prom
   }))
 
   const jsonld = q && q.trim()
-    ? {
-        "@context": "https://schema.org",
-        "@type": "SearchResultsPage",
-        "name": `Search results for “${q}”`,
-        "mainEntity": {
-          "@type": "ItemList",
-          "itemListElement": list
-        }
-      }
-    : {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        "name": "Artists",
-        "mainEntity": {
-          "@type": "ItemList",
-          "itemListElement": list
-        }
-      }
+    ? { "@context":"https://schema.org","@type":"SearchResultsPage","name":`Search results for “${q}”`,"mainEntity":{"@type":"ItemList","itemListElement":list}}
+    : { "@context":"https://schema.org","@type":"CollectionPage","name":"Artists","mainEntity":{"@type":"ItemList","itemListElement":list}}
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      <script
-        type="application/ld+json"
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }}
-      />
+      <script type="application/ld+json" suppressHydrationWarning dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }} />
       <h1 className="text-2xl font-semibold mb-3">
         {q && q.trim() ? <>Artists matching “{q}”</> : <>Artists</>}
       </h1>
