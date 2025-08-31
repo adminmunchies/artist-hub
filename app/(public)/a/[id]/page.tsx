@@ -1,4 +1,3 @@
-// app/(public)/a/[id]/page.tsx
 import Link from "next/link";
 import NewsSection from "./NewsSection";
 import TagLink from "@/components/TagLink";
@@ -29,20 +28,22 @@ function pickImage(w: any): string | null {
 }
 
 const asHttp = (u?: string | null) => (!u ? null : /^https?:\/\//i.test(u) ? u : `https://${u}`);
-const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
+// ORIGIN ohne trailing slash, damit Links sauber sind
+const ORIGIN = ((process.env.NEXT_PUBLIC_SITE_URL as string) || "http://localhost:3000").replace(/\/$/, "");
 
 export default async function ArtistPublicPage({ params }: Params) {
   const { id } = await params; // Next 15: params ist Promise
   const supabase = await getSupabaseServer();
 
-  // Artist + Tags laden
+  // Artist laden
   const { data: artist } = await supabase
     .from("artists")
     .select("id,name,city,bio,instagram_url,website_url,avatar_url,disciplines,tags")
     .eq("id", id)
     .maybeSingle();
 
-  // Öffentlich nur veröffentlichte Works anzeigen
+  // Nur veröffentlichte Works
   const { data: works } = await supabase
     .from("works")
     .select("*")
@@ -50,25 +51,40 @@ export default async function ArtistPublicPage({ params }: Params) {
     .eq("published", true)
     .order("created_at", { ascending: false });
 
-  const avatar =
-    artist?.avatar_url || "https://placehold.co/96x96?text=A&font=source-sans-pro";
+  const avatar = artist?.avatar_url || "https://placehold.co/96x96?text=A&font=source-sans-pro";
 
-  // JSON-LD Person (für SEO/AI)
-  const artistUrl = `${SITE_ORIGIN}/a/${id}`;
+  // -------- JSON-LD: Person (+ optionale Work-Beispiele) --------
+  const sameAs = [artist?.instagram_url, artist?.website_url].map(asHttp).filter(Boolean) as string[];
+
+  const workExamples = (works ?? []).slice(0, 12).map((w: any) => ({
+    "@type": "CreativeWork" as const,
+    name: w?.title ?? "Artwork",
+    image: pickImage(w) ?? undefined,
+    url: `${ORIGIN}/w/${w.id}`,
+  }));
+
   const jsonLdArtist = {
     "@context": "https://schema.org",
     "@type": "Person",
     name: artist?.name ?? undefined,
     description: artist?.bio ?? undefined,
-    image: artist?.avatar_url ?? undefined,
-    url: artistUrl,
-    sameAs: [artist?.instagram_url, artist?.website_url].filter(Boolean),
+    image: avatar,
+    url: `${ORIGIN}/a/${id}`,
+    sameAs,
+    // hilft thematische Zuordnung (AI-Suche)
+    knowsAbout: [
+      ...(Array.isArray(artist?.disciplines) ? artist!.disciplines : []),
+      ...(Array.isArray(artist?.tags) ? artist!.tags : []),
+    ],
+    // Beispiele verlinken tiefer in dein Werkverzeichnis
+    workExample: workExamples,
+    // optional: Stadt als PostalAddress
     address: artist?.city ? { "@type": "PostalAddress", addressLocality: artist.city } : undefined,
   };
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
-      {/* JSON-LD */}
+      {/* JSON-LD wird SSR in den HTML-Body geschrieben */}
       <script
         type="application/ld+json"
         suppressHydrationWarning
@@ -85,7 +101,7 @@ export default async function ArtistPublicPage({ params }: Params) {
           className="w-20 h-20 rounded-xl object-cover border"
         />
         <div className="flex-1">
-          {/* Disciplines & Tags als klickbare Chips -> /search?q=... */}
+          {/* Disciplines & Tags als klickbare Chips */}
           <div className="flex flex-wrap gap-2">
             {(artist?.disciplines ?? []).map((d) => <TagLink key={d} tag={d} />)}
             {(artist?.tags ?? []).map((t) => <TagLink key={t} tag={t} />)}
@@ -111,10 +127,10 @@ export default async function ArtistPublicPage({ params }: Params) {
         <p className="mt-6 text-gray-800 leading-relaxed">{artist.bio}</p>
       )}
 
-      {/* News direkt unter dem Header/Bio */}
+      {/* News */}
       <NewsSection artistId={id} />
 
-      {/* Artworks darunter */}
+      {/* Artworks */}
       <h2 className="text-2xl font-semibold mt-10 mb-4">Artworks</h2>
       {Array.isArray(works) && works.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
