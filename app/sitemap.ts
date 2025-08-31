@@ -50,7 +50,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ;(articles ?? []).forEach((s: any) => urls.push({ url: `${base}/an/${s.id}`, lastModified: last(s), changeFrequency: "weekly", priority: 0.6 }))
   ;(news ?? []).forEach   ((n: any) => urls.push({ url: `${base}/news/${n.id}`,lastModified: last(n), changeFrequency: "weekly", priority: 0.6 }))
 
-  // ---- Tag-Ernte (Works/News/Artists) ----
+  // ---- Tag-Ernte (Works / News / Artists) ----
   type TMeta = { count: number; last: Date }
   const tagMap = new Map<string, TMeta>()
   const addTag = (raw: any, when: Date) => {
@@ -85,7 +85,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     collectFromKeys(a, ["disciplines","tags"]).forEach(t => addTag(t, lm))
   })
 
-  // Auswahl & Ausgabe
   const totalTags = tagMap.size
   const minCount = totalTags > 200 ? 2 : 1
   const tagEntries = Array.from(tagMap.entries())
