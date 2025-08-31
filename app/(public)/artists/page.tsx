@@ -9,15 +9,15 @@ type Artist = { id: string; name: string | null; updated_at?: string | null; cre
 
 function norm(s: string) { return s.trim().toLowerCase() }
 
-// zieht aus Strings/Arrays/Objekten alle sinnvollen Textwerte (rekursiv)
+// zieht rekursiv Text aus Strings/Arrays/Objekten (slug, name, title, label, value, text, etc.)
 function collectTexts(v: any, out: string[] = []): string[] {
   if (v == null) return out
   const push = (x: any) => { if (x != null) out.push(String(x).toLowerCase()) }
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") { push(v); return out }
   if (Array.isArray(v)) { v.forEach(x => collectTexts(x, out)); return out }
   if (typeof v === "object") {
-    const keysPref = ["slug","name","title","label","value","text"]
-    keysPref.forEach(k => { if (k in v) push((v as any)[k]) })
+    const pref = ["slug","name","title","label","value","text"]
+    pref.forEach(k => { if (k in v) push((v as any)[k]) })
     Object.values(v).forEach(x => collectTexts(x, out))
     return out
   }
@@ -30,22 +30,31 @@ async function fetchArtistsByName(q: string): Promise<Artist[]> {
     .from("artists")
     .select("id,name,updated_at,created_at")
     .ilike("name", `%${q}%`)
-    .limit(100)
+    .limit(200)
   return data ?? []
+}
+
+async function fetchArtistsByProfileMeta(q: string): Promise<Artist[]> {
+  const supa = await getSupabaseServer()
+  const n = norm(q)
+  // wir holen bewusst * und filtern serverseitig in Node – robust ggü. wechselnden Feldern/Strukturen
+  const { data: rows } = await supa
+    .from("artists")
+    .select("*")
+    .limit(1000)
+  const hit = (rows ?? []).filter((r: any) => collectTexts(r).some(s => s.includes(n)))
+  return hit.map((r: any) => ({ id: r.id, name: r.name ?? null, updated_at: r.updated_at ?? null, created_at: r.created_at ?? null }))
 }
 
 async function fetchArtistsByWorksMeta(q: string): Promise<Artist[]> {
   const supa = await getSupabaseServer()
   const n = norm(q)
-
-  // hol (veröffentliche) Works – mit Feldern, die typischerweise Texte/Tags enthalten
   const { data: works } = await supa
     .from("works")
     .select("artist_id,tags,title,medium,materials,published")
     .eq("published", true)
     .limit(3000)
-
-  const artistIds = Array.from(new Set((works ?? [])
+  const ids = Array.from(new Set((works ?? [])
     .filter((w: any) => {
       const pool: string[] = []
       collectTexts(w?.tags, pool)
@@ -57,12 +66,11 @@ async function fetchArtistsByWorksMeta(q: string): Promise<Artist[]> {
     .map((w: any) => w?.artist_id)
     .filter(Boolean)
   ))
-
-  if (artistIds.length === 0) return []
+  if (ids.length === 0) return []
   const { data: artists } = await supa
     .from("artists")
     .select("id,name,updated_at,created_at")
-    .in("id", artistIds)
+    .in("id", ids)
     .limit(1000)
   return artists ?? []
 }
@@ -99,9 +107,13 @@ export default async function ArtistsPage({ searchParams }: { searchParams: Prom
 
   let items: Artist[] = []
   if (q && q.trim()) {
-    const [byName, byMeta] = await Promise.all([fetchArtistsByName(q), fetchArtistsByWorksMeta(q)])
+    const [byName, byProfile, byWorks] = await Promise.all([
+      fetchArtistsByName(q),
+      fetchArtistsByProfileMeta(q),
+      fetchArtistsByWorksMeta(q),
+    ])
     const map = new Map<string, Artist>()
-    ;[...byName, ...byMeta].forEach(a => { if (a?.id) map.set(a.id, a) })
+    ;[...byName, ...byProfile, ...byWorks].forEach(a => { if (a?.id) map.set(a.id, a) })
     items = Array.from(map.values())
   } else {
     items = await fetchDefaultArtists()
@@ -120,7 +132,7 @@ export default async function ArtistsPage({ searchParams }: { searchParams: Prom
       <h1 className="text-2xl font-semibold mb-3">{q && q.trim() ? <>Artists matching “{q}”</> : <>Artists</>}</h1>
       <p className="text-sm opacity-70 mb-6">
         {q && q.trim()
-          ? <>Results are based on artist names and tags in published works.</>
+          ? <>Results are based on artist names and tags in artist profiles and published works.</>
           : <>Recently updated artist profiles.</>}
       </p>
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
