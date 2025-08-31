@@ -2,6 +2,8 @@ import Link from "next/link";
 import NewsSection from "./NewsSection";
 import TagLink from "@/components/TagLink";
 import { getSupabaseServer } from "@/lib/supabaseServer";
+import type { Metadata } from "next";
+import { SITE_URL, toAbsolute } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -29,11 +31,32 @@ function pickImage(w: any): string | null {
 
 const asHttp = (u?: string | null) => (!u ? null : /^https?:\/\//i.test(u) ? u : `https://${u}`);
 
-// ORIGIN ohne trailing slash, damit Links sauber sind
-const ORIGIN = ((process.env.NEXT_PUBLIC_SITE_URL as string) || "http://localhost:3000").replace(/\/$/, "");
+// ---- OG/Twitter + Canonical ----
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const supabase = await getSupabaseServer();
+  const { data: artist } = await supabase
+    .from("artists")
+    .select("id,name,bio,avatar_url")
+    .eq("id", id)
+    .maybeSingle();
+
+  const title = artist?.name ?? "Artist";
+  const description = artist?.bio ?? "Artist profile on Munchies Art Club";
+  const ogImage = toAbsolute(artist?.avatar_url) ?? `${SITE_URL}/og-default.png`;
+  const url = `${SITE_URL}/a/${id}`;
+
+  return {
+    title,
+    description,
+    openGraph: { title, description, images: [ogImage], url, type: "profile" },
+    twitter: { card: "summary_large_image", title, description, images: [ogImage] },
+    alternates: { canonical: url },
+  };
+}
 
 export default async function ArtistPublicPage({ params }: Params) {
-  const { id } = await params; // Next 15: params ist Promise
+  const { id } = await params;
   const supabase = await getSupabaseServer();
 
   // Artist laden
@@ -51,7 +74,8 @@ export default async function ArtistPublicPage({ params }: Params) {
     .eq("published", true)
     .order("created_at", { ascending: false });
 
-  const avatar = artist?.avatar_url || "https://placehold.co/96x96?text=A&font=source-sans-pro";
+  const avatar =
+    toAbsolute(artist?.avatar_url) || "https://placehold.co/96x96?text=A&font=source-sans-pro";
 
   // -------- JSON-LD: Person (+ optionale Work-Beispiele) --------
   const sameAs = [artist?.instagram_url, artist?.website_url].map(asHttp).filter(Boolean) as string[];
@@ -59,8 +83,8 @@ export default async function ArtistPublicPage({ params }: Params) {
   const workExamples = (works ?? []).slice(0, 12).map((w: any) => ({
     "@type": "CreativeWork" as const,
     name: w?.title ?? "Artwork",
-    image: pickImage(w) ?? undefined,
-    url: `${ORIGIN}/w/${w.id}`,
+    image: toAbsolute(pickImage(w)) ?? undefined,
+    url: `${SITE_URL}/w/${w.id}`,
   }));
 
   const jsonLdArtist = {
@@ -69,16 +93,13 @@ export default async function ArtistPublicPage({ params }: Params) {
     name: artist?.name ?? undefined,
     description: artist?.bio ?? undefined,
     image: avatar,
-    url: `${ORIGIN}/a/${id}`,
+    url: `${SITE_URL}/a/${id}`,
     sameAs,
-    // hilft thematische Zuordnung (AI-Suche)
     knowsAbout: [
       ...(Array.isArray(artist?.disciplines) ? artist!.disciplines : []),
       ...(Array.isArray(artist?.tags) ? artist!.tags : []),
     ],
-    // Beispiele verlinken tiefer in dein Werkverzeichnis
     workExample: workExamples,
-    // optional: Stadt als PostalAddress
     address: artist?.city ? { "@type": "PostalAddress", addressLocality: artist.city } : undefined,
   };
 
@@ -135,7 +156,7 @@ export default async function ArtistPublicPage({ params }: Params) {
       {Array.isArray(works) && works.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
           {works.map((w: any) => {
-            const imgSrc = pickImage(w);
+            const imgSrc = toAbsolute(pickImage(w));
             return (
               <Link
                 key={w.id}

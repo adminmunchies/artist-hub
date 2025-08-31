@@ -1,7 +1,8 @@
-// app/(public)/w/[id]/page.tsx
 import Link from "next/link";
 import TagLink from "@/components/TagLink";
 import { getSupabaseServer } from "@/lib/supabaseServer";
+import { SITE_URL, toAbsolute } from "@/lib/site";
+import type { Metadata } from "next";
 
 type Work = {
   id: string;
@@ -12,24 +13,56 @@ type Work = {
   artist_id: string | null;
   published: boolean | null;
   tags?: string[] | null;
+  created_at?: string | null;
 };
-
 type Artist = { id: string; name: string | null };
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function WorkPublicPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+type Params = { params: Promise<{ id: string }> };
+
+const pickImage = (w?: Partial<Work> | null): string | null => {
+  if (!w) return null;
+  const v = w.image_url || w.thumbnail_url;
+  return typeof v === "string" && v.trim() ? v : null;
+};
+
+// OG/Twitter + Canonical (+ noindex bei unveröffentlichten)
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { id } = await params;
+  const supabase = await getSupabaseServer();
+  const { data: w } = await supabase
+    .from("works")
+    .select("id,title,description,created_at,artist_id,published,image_url,thumbnail_url")
+    .eq("id", id)
+    .maybeSingle();
+
+  const title = w?.title ?? "Artwork";
+  const description = w?.description ?? "Artwork on Munchies Art Club";
+  const ogImage = toAbsolute(pickImage(w)) ?? `${SITE_URL}/og-default.png`;
+  const url = `${SITE_URL}/w/${id}`;
+
+  if (!w || w.published !== true) {
+    return { title, description, alternates: { canonical: url }, robots: { index: false, follow: false } };
+  }
+
+  return {
+    title,
+    description,
+    openGraph: { title, description, images: [ogImage], url, type: "article" },
+    twitter: { card: "summary_large_image", title, description, images: [ogImage] },
+    alternates: { canonical: url },
+  };
+}
+
+export default async function WorkPublicPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await getSupabaseServer();
 
   const { data: work } = await supabase
     .from("works")
-    .select("id,title,description,image_url,thumbnail_url,artist_id,published,tags")
+    .select("id,title,description,image_url,thumbnail_url,artist_id,published,tags,created_at")
     .eq("id", id)
     .maybeSingle();
 
@@ -37,9 +70,7 @@ export default async function WorkPublicPage({
     return (
       <main className="mx-auto max-w-6xl px-4 py-8">
         <p className="text-red-600">Work not found.</p>
-        <Link href="/" className="underline">
-          Back home
-        </Link>
+        <Link href="/" className="underline">Back home</Link>
       </main>
     );
   }
@@ -51,45 +82,56 @@ export default async function WorkPublicPage({
     .maybeSingle();
 
   const artistName = artist?.name ?? "Artist";
-  const img = work.image_url || work.thumbnail_url;
+  const img = toAbsolute(pickImage(work));
   const alt = `${artistName} — ${work.title ?? "Untitled"}`;
+
+  // JSON-LD (VisualArtwork)
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "VisualArtwork",
+    "@id": `${SITE_URL}/w/${id}`,
+    url: `${SITE_URL}/w/${id}`,
+    name: work.title ?? "Artwork",
+    description: work.description ?? "",
+    image: img ? [img] : undefined,
+    creator: artist?.name ? { "@type": "Person", name: artist.name, "@id": `${SITE_URL}/a/${artist.id}` } : undefined,
+    dateCreated: work.created_at ?? undefined,
+    keywords: Array.isArray(work.tags) ? work.tags : undefined,
+    publisher: { "@type": "Organization", name: "Munchies Art Club" },
+  };
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-6">
-        <Link href={`/a/${artist?.id ?? ""}`} className="text-sm underline">
-          ← Back to artist
-        </Link>
+        <Link href={`/a/${artist?.id ?? ""}`} className="text-sm underline">← Back to artist</Link>
       </div>
 
       <h1 className="mb-4 text-2xl font-semibold">{work.title ?? "Untitled"}</h1>
 
-      {/* Bild groß */}
       <figure>
         {img ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={img} alt={alt} className="mx-auto block w-full max-h-[80vh] object-contain" />
         ) : (
-          <div className="flex h-[50vh] w-full items-center justify-center bg-gray-100 text-gray-400">
-            No image
-          </div>
+          <div className="flex h-[50vh] w-full items-center justify-center bg-gray-100 text-gray-400">No image</div>
         )}
       </figure>
 
-      {/* Beschreibung & Credit */}
-      {work.description ? (
-        <p className="mt-4 max-w-3xl text-gray-700">{work.description}</p>
-      ) : null}
+      {work.description ? <p className="mt-4 max-w-3xl text-gray-700">{work.description}</p> : null}
       <p className="mt-2 text-sm text-gray-500">Image courtesy of {artistName}</p>
 
-      {/* Tags → /search */}
       {(work.tags ?? []).length > 0 && (
         <div className="mt-4 flex flex-wrap gap-2">
-          {(work.tags ?? []).map((t) => (
-            <TagLink key={t} tag={t} />
-          ))}
+          {(work.tags ?? []).map((t) => <TagLink key={t} tag={t} />)}
         </div>
       )}
+
+      {/* JSON-LD SSR */}
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
     </main>
   );
 }

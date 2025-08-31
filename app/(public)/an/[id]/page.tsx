@@ -1,72 +1,117 @@
-// app/(public)/an/[id]/page.tsx
 import { getSupabaseServer } from "@/lib/supabaseServer";
+import { SITE_URL, toAbsolute } from "@/lib/site";
+import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const BASE = process.env.SITE_URL || "http://localhost:3000";
+type Params = { params: Promise<{ id: string }> };
 
-export async function generateMetadata({ params }: { params: { id: string } }) {
+// ---- OG/Twitter + Canonical (+ noindex wenn unveröffentlicht) ----
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { id } = await params;
   const supabase = await getSupabaseServer();
+
   const { data: row } = await supabase
     .from("artist_news")
-    .select("title,excerpt,image_url,url,published")
-    .eq("id", params.id)
-    .single();
+    .select("id,title,excerpt,image_url,created_at,published")
+    .eq("id", id)
+    .maybeSingle();
 
-  if (!row || row.published !== true) return { robots: { index: false, follow: false } };
+  const title = row?.title ?? "Artist News";
+  const description = row?.excerpt ?? undefined;
+  const og = toAbsolute(row?.image_url) ?? `${SITE_URL}/og-default.png`;
+  const url = `${SITE_URL}/an/${id}`;
 
-  const title = row.title ?? "Artist News";
-  const description = row.excerpt ?? undefined;
-  const images = row.image_url ? [row.image_url] : [];
+  if (!row || row.published !== true) {
+    return { title, description, alternates: { canonical: url }, robots: { index: false, follow: false } };
+  }
 
   return {
     title,
     description,
-    alternates: { canonical: `${BASE}/an/${params.id}` },
-    openGraph: { title, description, images, url: `${BASE}/an/${params.id}` },
-    twitter: { card: images.length ? "summary_large_image" : "summary", title, description, images },
-    robots: { index: true, follow: true },
+    openGraph: { title, description, images: [og], url, type: "article" },
+    twitter: { card: "summary_large_image", title, description, images: [og] },
+    alternates: { canonical: url },
   };
 }
 
-export default async function ArtistNewsDetail({ params }: { params: { id: string } }) {
+export default async function ArtistNewsDetail({ params }: Params) {
+  const { id } = await params;
   const supabase = await getSupabaseServer();
+
   const { data: row } = await supabase
     .from("artist_news")
     .select("id,title,excerpt,image_url,url,artist_id,created_at,published")
-    .eq("id", params.id)
-    .single();
+    .eq("id", id)
+    .maybeSingle();
 
   if (!row || row.published !== true) notFound();
 
-  let artistName: string | null = null;
-  if (row.artist_id) {
-    const { data: a } = await supabase.from("artists").select("name").eq("id", row.artist_id).single();
-    artistName = a?.name ?? null;
-  }
+  const { data: a } = row.artist_id
+    ? await supabase.from("artists").select("id,name").eq("id", row.artist_id).maybeSingle()
+    : { data: null as any };
+
+  const artistId = a?.id ?? null;
+  const artistName = a?.name ?? null;
+  const img = toAbsolute(row.image_url);
+
+  // JSON-LD (NewsArticle)
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    "@id": `${SITE_URL}/an/${id}`,
+    url: `${SITE_URL}/an/${id}`,
+    headline: row.title ?? "Artist News",
+    image: img ? [img] : undefined,
+    datePublished: row.created_at ?? undefined,
+    description: row.excerpt ?? "",
+    publisher: { "@type": "Organization", name: "Munchies Art Club" },
+    mainEntityOfPage: { "@type": "WebPage", "@id": `${SITE_URL}/an/${id}` },
+    sameAs: row.url ? [row.url] : undefined,
+    about:
+      artistId && artistName
+        ? { "@type": "Person", name: artistName, "@id": `${SITE_URL}/a/${artistId}` }
+        : undefined,
+  };
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-10 space-y-6">
       <h1 className="text-2xl font-semibold">{row.title || "Artist News"}</h1>
 
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      {row.image_url ? (
-        <img src={row.image_url} alt={row.title || "News"} className="w-full rounded-xl object-cover" />
+      {img ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={img} alt={row.title || "News"} className="w-full rounded-xl object-cover" />
       ) : null}
 
       <div className="text-sm text-gray-500">
-        {artistName ? <>von <span className="font-medium">{artistName}</span></> : null}
+        {artistName ? (
+          <>
+            von{" "}
+            <Link href={`/a/${artistId}`} className="underline">
+              {artistName}
+            </Link>
+          </>
+        ) : null}
       </div>
 
       {row.excerpt ? <p className="text-gray-700">{row.excerpt}</p> : null}
 
-      <div>
-        <a href={row.url} target="_blank" rel="noreferrer" className="underline">
-          Zur Quelle öffnen ↗
-        </a>
-      </div>
+      {row.url && (
+        <div>
+          <a href={row.url} target="_blank" rel="noreferrer" className="underline">
+            Zur Quelle öffnen ↗
+          </a>
+        </div>
+      )}
+
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
     </main>
   );
 }
