@@ -1,3 +1,4 @@
+// app/(public)/page.tsx
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getSupabaseServer } from "@/lib/supabaseServer";
@@ -15,7 +16,8 @@ export const metadata: Metadata = {
   description: "Curated artist profiles, works and news from Munchies Art Club.",
   openGraph: {
     title: "Munchies Art Club — Artists, Works, News",
-    description: "Curated artist profiles, works and news from Munchies Art Club.",
+    description:
+      "Curated artist profiles, works and news from Munchies Art Club.",
     images: [`${SITE_URL}/og-default.png`],
     url: SITE_URL,
     type: "website",
@@ -23,7 +25,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Munchies Art Club — Artists, Works, News",
-    description: "Curated artist profiles, works and news from Munchies Art Club.",
+    description:
+      "Curated artist profiles, works and news from Munchies Art Club.",
     images: [`${SITE_URL}/og-default.png`],
   },
   alternates: { canonical: SITE_URL },
@@ -39,7 +42,7 @@ type Artist = {
 export default async function HomePage() {
   const supabase = await getSupabaseServer();
 
-  // 1) Artists – neueste 3
+  // 1) Artists – neueste 3 (immer frisch)
   const { data: artists } = await supabase
     .from("artists")
     .select("id,name,city,avatar_url")
@@ -88,7 +91,9 @@ export default async function HomePage() {
               )}
               <div className="px-3 py-2">
                 <div className="font-medium">{a.name}</div>
-                {a.city ? <div className="text-sm text-gray-500">{a.city}</div> : null}
+                {a.city ? (
+                  <div className="text-sm text-gray-500">{a.city}</div>
+                ) : null}
               </div>
             </Link>
           );
@@ -103,3 +108,4 @@ export default async function HomePage() {
     </main>
   );
 }
+

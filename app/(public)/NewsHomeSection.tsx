@@ -34,7 +34,7 @@ export default async function NewsHomeSection() {
     image: n.image_url ?? null,
     subtitle: n.artist?.name ?? null,
     tags: Array.isArray(n.tags)
-      ? n.tags.map((t) => String(t).trim()).filter(Boolean)
+      ? n.tags.map((t, i) => String(t).trim()).filter(Boolean)
       : [],
   }));
 
@@ -79,7 +79,7 @@ export default async function NewsHomeSection() {
             {/* Tags außerhalb des Links */}
             {it.tags.length > 0 ? (
               <div className="px-3 pb-3 flex flex-wrap gap-2">
-                {it.tags.slice(0, 8).map((t) => (
+                {it.tags.slice(0, 8).map((t, i) => (
                   <TagLink key={`${it.id}-${t}`} tag={t} />
                 ))}
               </div>

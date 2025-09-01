@@ -21,3 +21,7 @@ pnpm-lock.yaml
 
 # Local debug route (keep local, not in repo)
 app/api/debug/
+
+# local backups
+*.bak
+*.backup.tsx

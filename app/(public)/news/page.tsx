@@ -1,96 +1,198 @@
-import type { Metadata } from "next"
-import { SITE_URL } from "@/lib/site"
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin"
+// app/(public)/news/page.tsx
+import Link from "next/link";
+import { getSupabaseServer } from "@/lib/supabaseServer";
 
-export const revalidate = 300
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function pickImg(row: any): string {
-  const imgs = Array.isArray(row?.images) ? row.images.filter(Boolean) : []
-  return imgs[0] || row?.cover_image || row?.og_image || "/og-default.png"
+type RawArtistNews = {
+  id: string;
+  title: string;
+  created_at?: string | null;
+  artist_id?: string | null;
+  external_url?: string | null;
+  image_url?: string | null;
+  og_image?: string | null;
+  cover_image?: string | null;
+  thumbnail_url?: string | null;
+  images?: string[] | null;
+};
+
+type RawEditorial = {
+  id: string;
+  title: string;
+  created_at?: string | null;
+  excerpt?: string | null;
+  image_url?: string | null;
+  og_image?: string | null;
+  cover_image?: string | null;
+  thumbnail_url?: string | null;
+  tags?: string[] | null;
+  tags_lc?: string[] | null;
+};
+
+type RawAdminLink = {
+  id: string;
+  title?: string | null;
+  url: string;
+  image_url?: string | null;
+  excerpt?: string | null;
+  created_at?: string | null;
+};
+
+function pickImage(r: any): string {
+  const candidates = [
+    r?.image_url,
+    r?.og_image,
+    r?.cover_image,
+    r?.thumbnail_url,
+    Array.isArray(r?.images) && r.images.length ? r.images[0] : null,
+    r?.thumbnail,
+  ];
+  for (const v of candidates) {
+    if (typeof v === "string" && /^https?:\/\//.test(v)) return v;
+  }
+  return "/og-default.png";
 }
 
-export async function generateMetadata(
-  { searchParams }: { searchParams?: { page?: string } }
-): Promise<Metadata> {
-  const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
-  const page = Number(searchParams?.page ?? "1") || 1
-  const canonical = `${base}/news${page>1 ? `?page=${page}` : ""}`
-  const title = "Artist News"
-  const description = "Latest artist news from Munchies Art Club."
+export default async function NewsIndexPage() {
+  const supa = await getSupabaseServer();
 
-  return {
-    title, description,
-    alternates: { canonical },
-    openGraph: {
-      title, description, url: canonical, siteName: "Munchies Art Club",
-      images: [{ url: "/api/og/news", width: 1200, height: 630 }]
-    },
-    twitter: { card: "summary_large_image", title, description, images: ["/api/og/news"] }
-  }
-}
+  const [artistNewsRes, editorialRes, adminRes] = await Promise.all([
+    supa
+      .from("artist_news")
+      .select("*")
+      .eq("published", true)
+      .order("created_at", { ascending: false })
+      .limit(60),
+    supa
+      .from("site_articles")
+      .select("*")
+      .eq("published", true)
+      .order("created_at", { ascending: false })
+      .limit(60),
+    supa
+      .from("admin_links")
+      .select("*")
+      .eq("published", true)
+      .eq("featured", true) // falls du ALLE publizierten Links zeigen willst, entferne diese Zeile
+      .order("created_at", { ascending: false })
+      .limit(24),
+  ]);
 
-async function fetchArtistNews(page: number, perPage = 12) {
-  const supabase = await getSupabaseAdmin()
-  const from = (page - 1) * perPage
-  const to = from + perPage - 1
-
-  const { data, count, error } = await supabase
-    .from("artist_news")
-    .select("id,title,created_at,og_image,cover_image,images,description", { count: "exact" })
-    .eq("published", true)
-    .order("created_at", { ascending: false })
-    .range(from, to)
-
-  if (error) {
-    console.warn("artist_news error:", { message: error.message, details: error.details, hint: error.hint })
-    return { items: [] as any[], total: 0 }
-  }
-  return { items: data ?? [], total: count ?? (data?.length ?? 0) }
-}
-
-export default async function Page({ searchParams }:{ searchParams?: { page?: string } }) {
-  const page = Math.max(1, Number(searchParams?.page ?? "1") || 1)
-  const { items: news, total } = await fetchArtistNews(page)
-  const base = (SITE_URL ?? "http://localhost:3000").replace(/\/$/,"")
-
-  // JSON-LD (CollectionPage + ItemList)
-  const list = news.map((n: any, i: number) => ({
-    "@type":"ListItem", position: i+1, url: `${base}/news/${n.id}`, name: n.title ?? `News ${n.id}`
-  }))
-  const jsonld = {
-    "@context":"https://schema.org",
-    "@type":"CollectionPage",
-    "name":"Artist News",
-    "mainEntity":{ "@type":"ItemList", "itemListElement": list }
-  }
-
-  const perPage = 12
-  const hasNext = page * perPage < total
+  const artistNews = (artistNewsRes.data ?? []) as RawArtistNews[];
+  const editorials = (editorialRes.data ?? []) as RawEditorial[];
+  const featuredLinks = (adminRes.data ?? []) as RawAdminLink[];
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10">
-      <script type="application/ld+json" suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonld) }} />
-
+    <main className="mx-auto max-w-6xl px-4 py-10">
+      {/* Artist News */}
       <h1 className="text-2xl font-semibold mb-6">Artist News</h1>
+      {artistNews.length === 0 ? (
+        <p className="opacity-70 mb-12">No artist news found.</p>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 mb-12">
+          {artistNews.map((n) => {
+            const href = n.artist_id
+              ? `/a/${n.artist_id}`
+              : n.external_url || "/news";
+            return (
+              <Link
+                key={`an-${n.id}`}
+                href={href}
+                className="block rounded-2xl border overflow-hidden hover:shadow-sm"
+              >
+                <div className="aspect-[16/10] bg-gray-100 overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={pickImage(n)}
+                    alt={n.title}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="p-4">
+                  <div className="text-xs tracking-wide uppercase opacity-70 mb-1">
+                    ARTIST NEWS
+                  </div>
+                  <div className="font-medium">{n.title}</div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
-      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {news.map((n: any) => (
-          <li key={n.id} className="border rounded-xl overflow-hidden">
-            <a href={`/news/${n.id}`} className="block">
-              <img src={pickImg(n)} alt="" style={{ width:"100%", height:180, objectFit:"cover", display:"block" }} />
-              <div className="p-4 font-medium underline">{n.title ?? n.id}</div>
+      {/* Editorials */}
+      <h2 className="text-2xl font-semibold mb-6">Editorials</h2>
+      {editorials.length === 0 ? (
+        <p className="opacity-70 mb-12">No editorials found.</p>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 mb-12">
+          {editorials.map((e) => (
+            <Link
+              key={`ed-${e.id}`}
+              href={`/an/${e.id}`}
+              className="block rounded-2xl border overflow-hidden hover:shadow-sm"
+            >
+              <div className="aspect-[16/10] bg-gray-100 overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={pickImage(e)}
+                  alt={e.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+              <div className="p-4">
+                <div className="text-xs tracking-wide uppercase opacity-70 mb-1">
+                  EDITORIAL
+                </div>
+                <div className="font-medium">{e.title}</div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Featured Links (admin_links) */}
+      <h2 className="text-2xl font-semibold mb-6">Featured Links</h2>
+      {featuredLinks.length === 0 ? (
+        <p className="opacity-70">No featured links yet.</p>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {featuredLinks.map((l) => (
+            <a
+              key={`fl-${l.id}`}
+              href={l.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="block rounded-2xl border overflow-hidden hover:shadow-sm"
+            >
+              <div className="aspect-[16/10] bg-gray-100 overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={pickImage(l)}
+                  alt={l.title || l.url}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+              <div className="p-4">
+                <div className="text-xs tracking-wide uppercase opacity-70 mb-1">
+                  FEATURED LINK
+                </div>
+                <div className="font-medium">{l.title || l.url}</div>
+                {l.excerpt ? (
+                  <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                    {l.excerpt}
+                  </p>
+                ) : null}
+              </div>
             </a>
-          </li>
-        ))}
-        {news.length === 0 && <li className="opacity-70">No news found.</li>}
-      </ul>
-
-      {hasNext && (
-        <div className="mt-6">
-          <a className="inline-block border rounded-xl px-4 py-2" href={`/news?page=${page+1}`}>Load more</a>
+          ))}
         </div>
       )}
     </main>
-  )
+  );
 }

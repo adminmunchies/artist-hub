@@ -1,127 +1,109 @@
-// app/(public)/an/[id]/page.tsx
-import type { Metadata } from "next"
-import { notFound } from "next/navigation"
-import { SITE_URL } from "@/lib/site"
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin"
+import 'server-only';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-export const runtime = "nodejs"
-export const revalidate = 300
+import { createClient } from '@supabase/supabase-js';
+import { notFound } from 'next/navigation';
 
-type Params = { id: string }
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
+);
 
-const baseUrl = (SITE_URL ?? "http://localhost:3000").replace(/\/$/, "")
-const toAbs = (u?: string) => {
-  if (!u) return `${baseUrl}/og-default.png`
-  if (/^https?:\/\//i.test(u)) return String(u)
-  return `${baseUrl}${u.startsWith("/") ? "" : "/"}${u}`
+type Rec = { [key: string]: any };
+
+// --- helpers ---
+function firstImage(images: any[] | null | undefined): string | undefined {
+  if (!images || !Array.isArray(images) || images.length === 0) return undefined;
+  const v = images[0];
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object' && 'url' in v && typeof (v as any).url === 'string') return (v as any).url;
+  return undefined;
 }
 
-async function fetchArticle(id: string) {
-  const supabase = await getSupabaseAdmin()
-  const { data } = await supabase
-    .from("site_articles")
-    .select("*")
-    .eq("id", id)
-    .eq("published", true)
-    .single()
-  return data as any || null
+function guessImage(rec: Rec): string | undefined {
+  const prefer = [
+    'og_image','cover_image','image_url','image','cover','featured_image',
+    'thumbnail','thumbnail_url','thumb','hero_image','banner','photo',
+  ];
+  for (const k of prefer) {
+    const v = rec?.[k];
+    if (typeof v === 'string' && /^https?:\/\//.test(v)) return v;
+  }
+  const first = firstImage(rec?.images);
+  if (first) return first;
+
+  for (const [k, v] of Object.entries(rec || {})) {
+    if (typeof v === 'string' && /^https?:\/\//.test(v) && /(img|image|cover|photo|thumb|og)/i.test(k)) {
+      return v;
+    }
+  }
+  return undefined;
 }
 
-export async function generateMetadata(
-  { params }: { params: Promise<Params> }
-): Promise<Metadata> {
-  const { id } = await params
-  const row = await fetchArticle(id)
-  if (!row) return {}
-
-  const title = row.title ?? "Article"
-  const description = row.summary ?? row.excerpt ?? row.description ?? ""
-  const canonical = `${baseUrl}/an/${row.id}`
-  const img =
-    row.og_image ??
-    row.cover_image ??
-    (Array.isArray(row.images) && row.images[0]) ??
-    "/og-default.png"
-  const imgAbs = toAbs(img)
-
-  return {
-    title,
-    description,
-    alternates: { canonical },
-    openGraph: {
-      type: "article",
-      url: canonical,
-      title,
-      description,
-      images: [{ url: imgAbs }],
-      publishedTime: row.created_at ?? undefined,
-      modifiedTime: row.updated_at ?? row.created_at ?? undefined,
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: [imgAbs],
-    },
+function guessExternalUrl(rec: Rec): string | undefined {
+  const prefer = [
+    'url','source_url','link','href','original_url','article_url','website','canonical','external_url'
+  ];
+  for (const k of prefer) {
+    const v = rec?.[k];
+    if (typeof v === 'string' && /^https?:\/\//.test(v)) return v;
   }
+  // Fallback: irgendein http(s)-Feld mit „url|link|href“
+  for (const [k, v] of Object.entries(rec || {})) {
+    if (typeof v === 'string' && /^https?:\/\//.test(v) && /(url|link|href)/i.test(k)) return v;
+  }
+  return undefined;
 }
 
-export default async function Page(
-  { params }: { params: Promise<Params> }
-) {
-  const { id } = await params
-  const row = await fetchArticle(id)
-  if (!row) notFound()
+// --- data ---
+async function getArticle(id: string) {
+  const { data, error } = await supabase
+    .from('site_articles')        // Editorial-Tabelle
+    .select('*')
+    .eq('id', id)
+    .single();
 
-  const title = row.title ?? "Article"
-  const description = row.summary ?? row.excerpt ?? row.description ?? ""
-  const canonical = `${baseUrl}/an/${row.id}`
+  if (error || !data) return null;
+  return data as Rec;
+}
 
-  const articleJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Article",
-    "mainEntityOfPage": { "@type": "WebPage", "@id": canonical },
-    "headline": title,
-    "datePublished": row.created_at ?? undefined,
-    "dateModified": row.updated_at ?? row.created_at ?? undefined,
-    "author": row.author ? { "@type": "Person", name: row.author } : undefined,
-    "publisher": {
-      "@type": "Organization",
-      "name": "Munchies Art Club",
-      "logo": { "@type": "ImageObject", "url": toAbs("/publisher-logo.svg") }
-    },
-    "image": (() => {
-      const imgs: string[] = []
-      if (Array.isArray(row.images)) imgs.push(...row.images.map((x: string) => toAbs(x)))
-      if (row.cover_image) imgs.unshift(toAbs(row.cover_image))
-      if (row.og_image) imgs.unshift(toAbs(row.og_image))
-      return imgs.length ? Array.from(new Set(imgs)) : [toAbs("/og-default.png")]
-    })(),
-    "description": description || undefined
-  }
+// --- page ---
+export default async function Page({ params }: { params: { id: string } }) {
+  const rec = await getArticle(params.id);
+  if (!rec) notFound();
 
-  const crumbs = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    "itemListElement": [
-      { "@type": "ListItem", position: 1, name: "Home", item: baseUrl },
-      { "@type": "ListItem", position: 2, name: "Articles", item: `${baseUrl}/an` },
-      { "@type": "ListItem", position: 3, name: title, item: canonical }
-    ]
-  }
+  const title = rec.title ?? 'Untitled';
+  const excerpt = rec.excerpt ?? rec.subtitle ?? rec.description ?? null;
+  const img = guessImage(rec);
+  const ext = guessExternalUrl(rec);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <script type="application/ld+json" suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }} />
-      <script type="application/ld+json" suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(crumbs) }} />
+    <main className="mx-auto max-w-4xl px-4 py-10">
+      <h1 className="text-3xl md:text-4xl font-semibold tracking-tight mb-4">{title}</h1>
 
-      <article>
-        <h1 className="text-2xl font-semibold mb-4">{title}</h1>
-        {description && <p className="opacity-80 mb-6">{description}</p>}
-        {/* TODO: hier deinen eigentlichen Content/Images/Links rendern */}
-      </article>
+      {excerpt ? (
+        <p className="text-lg text-neutral-600 mb-6">{excerpt}</p>
+      ) : null}
+
+      {img ? (
+        <div className="mb-6">
+          <div className="rounded-2xl border overflow-hidden bg-gray-100 aspect-[16/9]">
+            <img src={img} alt={title} className="w-full h-full object-cover" loading="eager" />
+          </div>
+        </div>
+      ) : null}
+
+      {ext ? (
+        <a
+          href={ext}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 underline hover:no-underline text-sm mb-10"
+        >
+          {new URL(ext).hostname} <span aria-hidden>↗</span>
+        </a>
+      ) : null}
     </main>
-  )
+  );
 }
