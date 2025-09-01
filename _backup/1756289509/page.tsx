@@ -113,7 +113,7 @@ export default async function EditWorkPage({ params }: Params) {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">
-      <a href="/dashboard/works" className="inline-block mb-4 text-sm underline">
+      <a href="/" className="inline-block mb-4 text-sm underline">
         ← Back to Works
       </a>
       <h1 className="text-2xl font-semibold mb-6">Edit Work</h1>

@@ -8,7 +8,7 @@ export default async function ArtistNavbar() {
       <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
         <nav className="flex items-center gap-5">
           <Link href="/" prefetch={false} className="font-semibold">Artist Hub</Link>
-          <Link href="/dashboard/works" prefetch={false}>Works</Link>
+          <Link href="/" prefetch={false}>Works</Link>
           <Link href="/dashboard/profile" prefetch={false}>Profile</Link>
           <Link href="/dashboard/news" prefetch={false}>News</Link>
           <Link href="/dashboard/settings" prefetch={false}>Settings</Link>

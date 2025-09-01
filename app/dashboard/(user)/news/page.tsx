@@ -123,7 +123,7 @@ export default async function Page() {
           <a href={`/a/${artistId}`} className="border rounded-full px-4 py-2">
             My public page
           </a>
-          <a href="/dashboard/works" className="border rounded-full px-4 py-2">
+          <a href="/" className="border rounded-full px-4 py-2">
             Back to Works
           </a>
         </div>

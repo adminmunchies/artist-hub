@@ -17,7 +17,7 @@ export default function TopBar() {
           <Link href="/dashboard/profile" className={active("/dashboard/profile")}>
             Profile
           </Link>
-          <Link href="/dashboard/works" className={active("/dashboard/works")}>
+          <Link href="/" className={active("/dashboard/works")}>
             Works
           </Link>
           <Link href="/dashboard/exhibitions" className={active("/dashboard/exhibitions")}>
@@ -44,7 +44,7 @@ export default function TopBar() {
           <Link href="/dashboard/profile" onClick={() => setOpen(false)}>
             Profile
           </Link>
-          <Link href="/dashboard/works" onClick={() => setOpen(false)}>
+          <Link href="/" onClick={() => setOpen(false)}>
             Works
           </Link>
           <Link href="/dashboard/exhibitions" onClick={() => setOpen(false)}>
