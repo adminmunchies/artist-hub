@@ -42,7 +42,7 @@ async function fetchArtistNews(page: number, perPage = 12) {
     .range(from, to)
 
   if (error) {
-    console.error("artist_news error:", { message: error.message, details: error.details, hint: error.hint })
+    console.warn("artist_news error:", { message: error.message, details: error.details, hint: error.hint })
     return { items: [] as any[], total: 0 }
   }
   return { items: data ?? [], total: count ?? (data?.length ?? 0) }
