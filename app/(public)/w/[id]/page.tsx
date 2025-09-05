@@ -28,31 +28,38 @@ const pickImage = (w?: Partial<Work> | null): string | null => {
   return typeof v === "string" && v.trim() ? v : null;
 };
 
-// OG/Twitter + Canonical (+ noindex bei unveröffentlichten)
+// ----- SEO / Social -----
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
   const supabase = await getSupabaseServer();
+
   const { data: w } = await supabase
     .from("works")
     .select("id,title,description,created_at,artist_id,published,image_url,thumbnail_url")
     .eq("id", id)
     .maybeSingle();
 
+  const url = `${SITE_URL}/w/${id}`;
   const title = w?.title ?? "Artwork";
   const description = w?.description ?? "Artwork on Munchies Art Club";
-  const ogImage = toAbsolute(pickImage(w)) ?? `${SITE_URL}/og-default.png`;
-  const url = `${SITE_URL}/w/${id}`;
+  const img = toAbsolute(pickImage(w)) ?? `${SITE_URL}/og-default.png`;
+  const alt = `Artwork — ${title}`;
 
   if (!w || w.published !== true) {
-    return { title, description, alternates: { canonical: url }, robots: { index: false, follow: false } };
+    return {
+      title,
+      description,
+      alternates: { canonical: url },
+      robots: { index: false, follow: false },
+    };
   }
 
   return {
     title,
     description,
-    openGraph: { title, description, images: [ogImage], url, type: "article" },
-    twitter: { card: "summary_large_image", title, description, images: [ogImage] },
     alternates: { canonical: url },
+    openGraph: { title, description, url, type: "article", images: [{ url: img, alt }] },
+    twitter: { card: "summary_large_image", title, description, images: [{ url: img, alt }] },
   };
 }
 
@@ -85,7 +92,6 @@ export default async function WorkPublicPage({ params }: { params: Promise<{ id:
   const img = toAbsolute(pickImage(work));
   const alt = `${artistName} — ${work.title ?? "Untitled"}`;
 
-  // JSON-LD (VisualArtwork)
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "VisualArtwork",
@@ -94,9 +100,14 @@ export default async function WorkPublicPage({ params }: { params: Promise<{ id:
     name: work.title ?? "Artwork",
     description: work.description ?? "",
     image: img ? [img] : undefined,
-    creator: artist?.name ? { "@type": "Person", name: artist.name, "@id": `${SITE_URL}/a/${artist.id}` } : undefined,
+    contentUrl: img ?? undefined,
+    thumbnailUrl: img ?? undefined,
+    creator: artist?.name
+      ? { "@type": "Person", name: artist.name, "@id": `${SITE_URL}/a/${artist.id}` }
+      : undefined,
     dateCreated: work.created_at ?? undefined,
     keywords: Array.isArray(work.tags) ? work.tags : undefined,
+    creditText: artist?.name ? `Image courtesy of ${artist.name}` : undefined,
     publisher: { "@type": "Organization", name: "Munchies Art Club" },
   };
 
@@ -111,14 +122,25 @@ export default async function WorkPublicPage({ params }: { params: Promise<{ id:
       <figure>
         {img ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={img} alt={alt} className="mx-auto block w-full max-h-[80vh] object-contain" />
+          <img
+            src={img}
+            alt={alt}
+            className="mx-auto block w-full max-h-[80vh] object-contain"
+            decoding="async"
+            fetchPriority="high"
+            loading="eager"
+          />
         ) : (
-          <div className="flex h-[50vh] w-full items-center justify-center bg-gray-100 text-gray-400">No image</div>
+          <div className="flex h-[50vh] w-full items-center justify-center bg-gray-100 text-gray-400">
+            No image
+          </div>
         )}
+        <figcaption className="mt-2 text-sm text-gray-500">
+          Image courtesy of {artistName}
+        </figcaption>
       </figure>
 
       {work.description ? <p className="mt-4 max-w-3xl text-gray-700">{work.description}</p> : null}
-      <p className="mt-2 text-sm text-gray-500">Image courtesy of {artistName}</p>
 
       {(work.tags ?? []).length > 0 && (
         <div className="mt-4 flex flex-wrap gap-2">
@@ -126,7 +148,6 @@ export default async function WorkPublicPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
-      {/* JSON-LD SSR */}
       <script
         type="application/ld+json"
         suppressHydrationWarning
