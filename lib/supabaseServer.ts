@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export async function getSupabaseServer() {
-  const jar = await cookies(); // Next 15: must await
+  const jar = await cookies(); // Next 15: async
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
@@ -12,7 +12,7 @@ export async function getSupabaseServer() {
       get(name: string) {
         return jar.get(name)?.value;
       },
-      // In Server Components: no-op writes.
+      // In Server Components/Actions: no-op (Next verwaltet die Cookies)
       set() {},
       remove() {},
     },

@@ -1,4 +1,3 @@
-// app/dashboard/works/page.tsx
 import Link from "next/link";
 import { routes } from "@/lib/routes";
 import { getSupabaseServer } from "@/lib/supabaseServer";
@@ -27,7 +26,6 @@ export default async function WorksPage() {
     );
   }
 
-  // Eigene Artist-ID holen
   const { data: artist } = await supabase
     .from("artists")
     .select("id")
@@ -50,7 +48,7 @@ export default async function WorksPage() {
           const { data: works } = await supabase
             .from("works")
             .select("id,title,thumbnail_url,image_url,published")
-            .eq("artist_id", artist.id)             // falls dein Feld anders heißt (zB owner_id), hier umstellen
+            .eq("artist_id", artist.id)
             .order("created_at", { ascending: false });
 
           if (!works || works.length === 0) {
@@ -60,7 +58,8 @@ export default async function WorksPage() {
           return (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               {works.map((w: WorkRow) => {
-                const src = w.thumbnail_url || w.image_url || "";
+                // <- image_url zuerst!
+                const src = w.image_url || w.thumbnail_url || "";
                 return (
                   <Link
                     key={w.id}
@@ -69,7 +68,6 @@ export default async function WorksPage() {
                   >
                     <div className="aspect-[4/3] bg-gray-100">
                       {src ? (
-                        // absichtlich <img>, um Next/Image-Konfig-Stress zu vermeiden
                         <img
                           src={src}
                           alt={w.title ?? "Work image"}

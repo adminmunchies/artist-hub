@@ -1,21 +1,17 @@
 // app/layout.tsx
-import type { Metadata } from "next";
 import "./globals.css";
-import Footer from "@/components/Footer";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Artist Hub",
-  description: "AI-indexed micro site for artists",
+  title: "Munchies Art Club",
+  description: "Curated artist profiles, works and news from Munchies Art Club.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      {/* Body als Flex-Spalte -> Footer bleibt unten */}
-      <body className="min-h-screen flex flex-col antialiased">
-        {/* hier könnte später deine globale Nav/Auth-Bar rein */}
-        <main className="flex-1">{children}</main>
-        <Footer />
+      <body className="min-h-dvh antialiased">
+        {children}
       </body>
     </html>
   );

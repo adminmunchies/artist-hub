@@ -1,32 +1,17 @@
-// app/(public)/a/[id]/page.tsx
 import Link from "next/link";
-import type { Metadata } from "next";
-import TagLink from "@/components/TagLink";
 import NewsSection from "./NewsSection";
+import TagLink from "@/components/TagLink";
 import { getSupabaseServer } from "@/lib/supabaseServer";
+import type { Metadata } from "next";
 import { SITE_URL, toAbsolute } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// Next 15: params are async
 type Params = { params: Promise<{ id: string }> };
 
-// helpers
-const asHttp = (u?: string | null) =>
-  !u ? null : /^https?:\/\//i.test(u) ? u : `https://${u}`;
-
 function pickImage(w: any): string | null {
-  const urlCandidates = [
-    "cover_url",
-    "image_url",
-    "thumbnail_url",
-    "thumb_url",
-    "url",
-    "cover",
-    "image",
-    "thumbnail",
-  ];
+  const urlCandidates = ["cover_url", "image_url", "thumbnail_url", "thumb_url", "url", "cover", "image", "thumbnail"];
   for (const k of urlCandidates) {
     const v = w?.[k];
     if (typeof v === "string" && v.trim()) return v;
@@ -39,65 +24,50 @@ function pickImage(w: any): string | null {
   const jsonCandidates = ["cover_json", "image_json", "thumbnail_json"];
   for (const k of jsonCandidates) {
     const o = w?.[k];
-    if (o && typeof o === "object" && typeof (o as any).url === "string")
-      return (o as any).url;
+    if (o && typeof o === "object" && typeof o.url === "string") return o.url;
   }
   return null;
 }
 
-// ---- SEO: Metadata (OG/Twitter + Canonical) ----
-export async function generateMetadata(
-  { params }: { params: Promise<{ id: string }> }
-): Promise<Metadata> {
+const asHttp = (u?: string | null) => (!u ? null : /^https?:\/\//i.test(u) ? u : `https://${u}`);
+
+// ---- OG/Twitter + Canonical ----
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const supa = await getSupabaseServer();
-  const { data: artist } = await supa
+  const supabase = await getSupabaseServer();
+  const { data: artist } = await supabase
     .from("artists")
     .select("id,name,bio,avatar_url")
     .eq("id", id)
     .maybeSingle();
 
   const title = artist?.name ?? "Artist";
-  const description =
-    artist?.bio?.slice(0, 180) ?? "Artist profile on Munchies Art Club.";
+  const description = artist?.bio ?? "Artist profile on Munchies Art Club";
   const ogImage = toAbsolute(artist?.avatar_url) ?? `${SITE_URL}/og-default.png`;
   const url = `${SITE_URL}/a/${id}`;
 
   return {
     title,
     description,
-    openGraph: {
-      title,
-      description,
-      images: [ogImage],
-      url,
-      type: "profile",
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: [ogImage],
-    },
+    openGraph: { title, description, images: [ogImage], url, type: "profile" },
+    twitter: { card: "summary_large_image", title, description, images: [ogImage] },
     alternates: { canonical: url },
   };
 }
 
 export default async function ArtistPublicPage({ params }: Params) {
   const { id } = await params;
-  const supa = await getSupabaseServer();
+  const supabase = await getSupabaseServer();
 
-  // Artist
-  const { data: artist } = await supa
+  // Artist laden
+  const { data: artist } = await supabase
     .from("artists")
-    .select(
-      "id,name,city,bio,instagram_url,website_url,avatar_url,disciplines,tags"
-    )
+    .select("id,name,city,bio,instagram_url,website_url,avatar_url,disciplines,tags")
     .eq("id", id)
     .maybeSingle();
 
-  // Works (only published)
-  const { data: works } = await supa
+  // Nur veröffentlichte Works
+  const { data: works } = await supabase
     .from("works")
     .select("*")
     .eq("artist_id", id)
@@ -105,13 +75,10 @@ export default async function ArtistPublicPage({ params }: Params) {
     .order("created_at", { ascending: false });
 
   const avatar =
-    toAbsolute(artist?.avatar_url) ||
-    "https://placehold.co/96x96?text=A&font=source-sans-pro";
+    toAbsolute(artist?.avatar_url) || "https://placehold.co/96x96?text=A&font=source-sans-pro";
 
-  // -------- JSON-LD: Person + Breadcrumbs + WebPage --------
-  const sameAs = [artist?.instagram_url, artist?.website_url]
-    .map(asHttp)
-    .filter(Boolean) as string[];
+  // -------- JSON-LD: Person (+ optionale Work-Beispiele) --------
+  const sameAs = [artist?.instagram_url, artist?.website_url].map(asHttp).filter(Boolean) as string[];
 
   const workExamples = (works ?? []).slice(0, 12).map((w: any) => ({
     "@type": "CreativeWork" as const,
@@ -120,63 +87,29 @@ export default async function ArtistPublicPage({ params }: Params) {
     url: `${SITE_URL}/w/${w.id}`,
   }));
 
-  const jsonLd = [
-    {
-      "@context": "https://schema.org",
-      "@type": "Person",
-      name: artist?.name ?? undefined,
-      description: artist?.bio ?? undefined,
-      image: avatar,
-      url: `${SITE_URL}/a/${id}`,
-      sameAs,
-      knowsAbout: [
-        ...(Array.isArray(artist?.disciplines) ? artist!.disciplines : []),
-        ...(Array.isArray(artist?.tags) ? artist!.tags : []),
-      ],
-      workExample: workExamples,
-      address: artist?.city
-        ? { "@type": "PostalAddress", addressLocality: artist.city }
-        : undefined,
-    },
-    {
-      "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      itemListElement: [
-        {
-          "@type": "ListItem",
-          position: 1,
-          name: "Home",
-          item: SITE_URL,
-        },
-        {
-          "@type": "ListItem",
-          position: 2,
-          name: "Artists",
-          item: `${SITE_URL}/artists`,
-        },
-        {
-          "@type": "ListItem",
-          position: 3,
-          name: artist?.name ?? "Artist",
-          item: `${SITE_URL}/a/${id}`,
-        },
-      ],
-    },
-    {
-      "@context": "https://schema.org",
-      "@type": "WebPage",
-      name: artist?.name ?? "Artist",
-      url: `${SITE_URL}/a/${id}`,
-    },
-  ];
+  const jsonLdArtist = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: artist?.name ?? undefined,
+    description: artist?.bio ?? undefined,
+    image: avatar,
+    url: `${SITE_URL}/a/${id}`,
+    sameAs,
+    knowsAbout: [
+      ...(Array.isArray(artist?.disciplines) ? artist!.disciplines : []),
+      ...(Array.isArray(artist?.tags) ? artist!.tags : []),
+    ],
+    workExample: workExamples,
+    address: artist?.city ? { "@type": "PostalAddress", addressLocality: artist.city } : undefined,
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
-      {/* JSON-LD */}
+      {/* JSON-LD wird SSR in den HTML-Body geschrieben */}
       <script
         type="application/ld+json"
         suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdArtist) }}
       />
 
       <h1 className="text-3xl font-semibold">{artist?.name || "Artist"}</h1>
@@ -189,35 +122,21 @@ export default async function ArtistPublicPage({ params }: Params) {
           className="w-20 h-20 rounded-xl object-cover border"
         />
         <div className="flex-1">
-          {/* Disciplines & Tags */}
+          {/* Disciplines & Tags als klickbare Chips */}
           <div className="flex flex-wrap gap-2">
-            {(artist?.disciplines ?? []).map((d) => (
-              <TagLink key={`disc-${d}`} tag={String(d)} />
-            ))}
-            {(artist?.tags ?? []).map((t) => (
-              <TagLink key={`tag-${t}`} tag={String(t)} />
-            ))}
+            {(artist?.disciplines ?? []).map((d) => <TagLink key={d} tag={d} />)}
+            {(artist?.tags ?? []).map((t) => <TagLink key={t} tag={t} />)}
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-gray-700">
             {artist?.city && <span>📍 {artist.city}</span>}
             {artist?.website_url && (
-              <a
-                href={asHttp(artist.website_url)!}
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
+              <a href={asHttp(artist.website_url)!} target="_blank" rel="noreferrer" className="underline">
                 Website
               </a>
             )}
             {artist?.instagram_url && (
-              <a
-                href={asHttp(artist.instagram_url)!}
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
+              <a href={asHttp(artist.instagram_url)!} target="_blank" rel="noreferrer" className="underline">
                 Instagram
               </a>
             )}
@@ -232,7 +151,7 @@ export default async function ArtistPublicPage({ params }: Params) {
       {/* News */}
       <NewsSection artistId={id} />
 
-      {/* Works */}
+      {/* Artworks */}
       <h2 className="text-2xl font-semibold mt-10 mb-4">Artworks</h2>
       {Array.isArray(works) && works.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
