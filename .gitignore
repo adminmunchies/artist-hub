@@ -25,3 +25,8 @@ app/api/debug/
 # local backups
 *.bak
 *.backup.tsx
+
+.env
+.env.local
+.next
+node_modules
