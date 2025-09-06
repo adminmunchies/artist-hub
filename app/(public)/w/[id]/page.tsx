@@ -88,10 +88,24 @@ export default async function WorkPublicPage({ params }: { params: Promise<{ id:
     .eq("id", work.artist_id)
     .maybeSingle();
 
+  // Siblings (alle veröffentlichten Werke desselben Artists)
+  const { data: siblings = [] } = await supabase
+    .from("works")
+    .select("id,title,image_url,thumbnail_url,created_at")
+    .eq("artist_id", work.artist_id)
+    .eq("published", true)
+    .order("created_at", { ascending: true });
+
+  const idx = siblings.findIndex((w) => w.id === work.id);
+  const prev = idx > 0 ? siblings[idx - 1] : null;
+  const next = idx >= 0 && idx < siblings.length - 1 ? siblings[idx + 1] : null;
+
   const artistName = artist?.name ?? "Artist";
   const img = toAbsolute(pickImage(work));
   const alt = `${artistName} — ${work.title ?? "Untitled"}`;
+  const nextImg = toAbsolute(pickImage(next as any) || null);
 
+  // JSON-LD (VisualArtwork)
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "VisualArtwork",
@@ -112,24 +126,54 @@ export default async function WorkPublicPage({ params }: { params: Promise<{ id:
   };
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-6">
+    <main
+      className="mx-auto max-w-6xl px-4 py-8"
+      data-prev={prev ? `/w/${prev.id}` : ""}
+      data-next={next ? `/w/${next.id}` : ""}
+      id="work-detail-root"
+    >
+      <div className="mb-6 flex items-center justify-between gap-4">
         <Link href={`/a/${artist?.id ?? ""}`} className="text-sm underline">← Back to artist</Link>
+
+        {/* Prev / Next Buttons (oben klein) */}
+        {(prev || next) && (
+          <div className="flex items-center gap-2 text-sm">
+            {prev ? (
+              <Link href={`/w/${prev.id}`} rel="prev" className="rounded-full border px-3 py-1">
+                ← Prev
+              </Link>
+            ) : (
+              <span className="px-3 py-1 text-gray-400">← Prev</span>
+            )}
+            {next ? (
+              <Link href={`/w/${next.id}`} rel="next" className="rounded-full border px-3 py-1">
+                Next →
+              </Link>
+            ) : (
+              <span className="px-3 py-1 text-gray-400">Next →</span>
+            )}
+          </div>
+        )}
       </div>
 
       <h1 className="mb-4 text-2xl font-semibold">{work.title ?? "Untitled"}</h1>
 
       <figure>
         {img ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={img}
-            alt={alt}
-            className="mx-auto block w-full max-h-[80vh] object-contain"
-            decoding="async"
-            fetchPriority="high"
-            loading="eager"
-          />
+          // Rahmenlos, objekt-contain (Portrait & Landscape)
+          <div className="w-full overflow-hidden">
+            <div className="relative w-full" style={{ aspectRatio: "4 / 3" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={img}
+                alt={alt}
+                className="absolute inset-0 h-full w-full object-contain border-0"
+                decoding="async"
+                fetchPriority="high"
+                loading="eager"
+              />
+            </div>
+          </div>
         ) : (
           <div className="flex h-[50vh] w-full items-center justify-center bg-gray-100 text-gray-400">
             No image
@@ -148,10 +192,80 @@ export default async function WorkPublicPage({ params }: { params: Promise<{ id:
         </div>
       )}
 
+      {/* Untere, große Prev/Next-Navigation */}
+      {(prev || next) && (
+        <nav className="mt-10 flex items-center justify-between gap-4">
+          {prev ? (
+            <Link
+              href={`/w/${prev.id}`}
+              rel="prev"
+              prefetch={false}
+              className="inline-flex items-center gap-2 rounded-full border px-4 py-2"
+            >
+              ← Previous
+            </Link>
+          ) : <span />}
+          {next ? (
+            <Link
+              href={`/w/${next.id}`}
+              rel="next"
+              prefetch={false}
+              className="inline-flex items-center gap-2 rounded-full border px-4 py-2"
+            >
+              Next →
+            </Link>
+          ) : <span />}
+        </nav>
+      )}
+
+      {/* JSON-LD */}
       <script
         type="application/ld+json"
         suppressHydrationWarning
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+
+      {/* Preload des nächsten Bildes (sanft) */}
+      {nextImg ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={nextImg} alt="" aria-hidden="true" className="hidden" />
+      ) : null}
+
+      {/* Kleine Inline-Enhancements: ←/→ & Swipe */}
+      <script
+        // minimal & isoliert: nutzt data-prev/next vom Root
+        dangerouslySetInnerHTML={{
+          __html: `
+(function(){
+  var root = document.getElementById('work-detail-root');
+  if(!root) return;
+  var prev = root.getAttribute('data-prev');
+  var next = root.getAttribute('data-next');
+
+  // Arrow keys
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowLeft' && prev) { window.location.href = prev; }
+    if (e.key === 'ArrowRight' && next) { window.location.href = next; }
+  }, { passive: true });
+
+  // Touch swipe
+  var startX = 0, startY = 0, t0 = 0;
+  window.addEventListener('touchstart', function(e){
+    var t = e.changedTouches[0]; startX = t.clientX; startY = t.clientY; t0 = Date.now();
+  }, { passive: true });
+  window.addEventListener('touchend', function(e){
+    var t = e.changedTouches[0];
+    var dx = t.clientX - startX;
+    var dy = Math.abs(t.clientY - startY);
+    var dt = Date.now() - t0;
+    // horizontal, kurz, nicht zu viel vertikal
+    if (dt < 800 && dy < 60) {
+      if (dx > 60 && prev) window.location.href = prev;     // swipe right -> prev
+      if (dx < -60 && next) window.location.href = next;    // swipe left  -> next
+    }
+  }, { passive: true });
+})();`
+        }}
       />
     </main>
   );
