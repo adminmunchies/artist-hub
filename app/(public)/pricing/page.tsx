@@ -1,4 +1,3 @@
-// app/(public)/pricing/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -15,29 +14,39 @@ const LABEL: Record<Role, string> = {
   collector: "Collector",
 };
 
-function PlansSection({ role, onPickPaid }: { role: Role; onPickPaid: (p: Plan) => void }) {
+function PlansSection({
+  role,
+  onPickPaid,
+  onPickFree,
+}: {
+  role: Role;
+  onPickPaid: (p: Plan) => void;
+  onPickFree: (p: Plan) => void;
+}) {
   const plans = getPlansByRole(role);
   return (
     <section className="mt-8">
       <div className="pricing-grid">
         {plans.map((p) => (
           <div key={p.id} className="card">
-            <div className="flex items-baseline justify-between" style={{ display: "flex" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <h3 className="text-lg font-medium">{p.name}</h3>
               <span className="text-sm">{p.isFree ? "€0" : `€${p.priceMonthlyEUR}`}/mo</span>
             </div>
-
             <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
-              {p.features.map((f, i) => (
-                <li key={i}>{f}</li>
-              ))}
+              {p.features.map((f, i) => <li key={i}>{f}</li>)}
             </ul>
-
             <div className="mt-5" style={{ display: "flex", justifyContent: "flex-end" }}>
               {p.isFree ? (
-                <a href="/dashboard/settings/plan" className="btn">Choose Free</a>
+                <a
+                  href={`/dashboard/settings/plan?plan=${encodeURIComponent(p.id)}`}
+                  className="btn"
+                  onClick={() => onPickFree(p)}
+                >
+                  Choose Free
+                </a>
               ) : (
-                <button className="btn" onClick={() => onPickPaid(p)} aria-label={`Choose ${p.name}`}>
+                <button className="btn" onClick={() => onPickPaid(p)}>
                   Choose plan
                 </button>
               )}
@@ -49,7 +58,7 @@ function PlansSection({ role, onPickPaid }: { role: Role; onPickPaid: (p: Plan) 
   );
 }
 
-export default function PricingPage() {
+export default function PricingPage() {  // <-- Default-Export vorhanden
   const params = useSearchParams();
   const router = useRouter();
 
@@ -71,6 +80,10 @@ export default function PricingPage() {
     router.replace(`/pricing?${sp.toString()}`);
   }
 
+  function onPickFree(p: Plan) {
+    try { localStorage.setItem("ah_plan", p.id); } catch {}
+  }
+
   function onPickPaid(p: Plan) {
     setSelected(p);
     setOpen(true);
@@ -78,33 +91,27 @@ export default function PricingPage() {
 
   return (
     <main className="pb-24 pt-6">
-      <div>
-        <h1 className="text-3xl font-semibold">Pricing & Plans</h1>
-        <p className="mt-2 text-sm" style={{ color: "#666" }}>
-          Change or cancel anytime. Prices include VAT where applicable.
-        </p>
+      <h1 className="text-3xl font-semibold">Pricing & Plans</h1>
+      <p className="mt-2 text-sm" style={{ color: "#666" }}>
+        Change or cancel anytime. Prices include VAT where applicable.
+      </p>
 
-        {/* Role tabs */}
-        <div className="tabs" role="tablist" aria-label="Choose role">
-          {ROLES.map((r) => (
-            <button
-              key={r}
-              className="tab"
-              role="tab"
-              aria-current={role === r ? "page" : undefined}
-              onClick={() => selectRole(r)}
-            >
-              {LABEL[r]}
-            </button>
-          ))}
-        </div>
+      <div className="tabs" role="tablist" aria-label="Choose role">
+        {ROLES.map((r) => (
+          <button
+            key={r}
+            className="tab"
+            role="tab"
+            aria-current={role === r ? "page" : undefined}
+            onClick={() => selectRole(r)}
+          >
+            {LABEL[r]}
+          </button>
+        ))}
       </div>
 
-      {/* only one section visible */}
-      <h2 className="text-2xl font-semibold capitalize" style={{ marginTop: 18 }}>
-        {LABEL[role]}
-      </h2>
-      <PlansSection role={role} onPickPaid={onPickPaid} />
+      <h2 className="text-2xl font-semibold" style={{ marginTop: 18 }}>{LABEL[role]}</h2>
+      <PlansSection role={role} onPickPaid={onPickPaid} onPickFree={onPickFree} />
 
       {selected && (
         <PaywallModal
@@ -114,6 +121,7 @@ export default function PricingPage() {
           benefits={selected.features}
           priceLabel={`€${selected.priceMonthlyEUR}/mo`}
           ctaHref={`/api/checkout?plan=${encodeURIComponent(selected.id)}`}
+          onUnlock={() => { try { localStorage.setItem("ah_plan", selected.id); } catch {} }}
           onClose={() => setOpen(false)}
         />
       )}
