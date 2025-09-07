@@ -81,7 +81,7 @@ function pickImage(r: SiteArticle | AdminLink): string {
 function uniqueTags(arr: any[] | null | undefined): string[] {
   if (!arr) return [];
   const m = new Map<string, string>();
-  for (const v of arr) {
+  for (const v of arr ?? []) {
     const raw = String(v ?? "").trim();
     const k = raw.toLowerCase();
     if (!k) continue;
@@ -99,50 +99,61 @@ function byDateDesc(a: Card, b: Card) {
 export default async function AdminLinksHomeSection() {
   const supabase = await getSupabaseServer();
 
-  // 1) Admin Links – nur published & featured
-  const { data: admin, error: errA } = await supabase
-    .from("admin_links")
-    .select("*")
-    .eq("published", true)
-    .eq("featured", true)
-    .order("created_at", { ascending: false })
-    .limit(24);
-  if (errA) console.error("admin_links fetch error:", errA.message);
+  let admin: AdminLink[] | null = null;
+  let editorial: SiteArticle[] | null = null;
 
-  // 2) Redaktionelle Artikel (site_articles) – nur published & featured
-  const { data: editorial, error: errE } = await supabase
-    .from("site_articles")
-    .select("*")
-    .eq("published", true)
-    .eq("featured", true)
-    .order("created_at", { ascending: false })
-    .limit(24);
-  if (errE) console.error("site_articles fetch error:", errE.message);
+  // Defensiv: niemals console.error → kein Next Overlay
+  try {
+    const resA = await supabase
+      .from("admin_links")
+      .select("*")
+      .eq("published", true)
+      .eq("featured", true)
+      .order("created_at", { ascending: false })
+      .limit(24);
+    admin = resA.data ?? null;
+  } catch {
+    admin = null;
+  }
 
-  // 3) Normalisieren
-  const adminCards: Card[] = (admin ?? []).map((x: AdminLink) => ({
+  try {
+    const resE = await supabase
+      .from("site_articles")
+      .select("*")
+      .eq("published", true)
+      .eq("featured", true)
+      .order("created_at", { ascending: false })
+      .limit(24);
+    editorial = resE.data ?? null;
+  } catch {
+    editorial = null;
+  }
+
+  // Wenn beide scheitern (ENV/Netz), rendere nichts → stabile Home ohne rote Box
+  if (!admin && !editorial) return null;
+
+  const adminCards: Card[] = (admin ?? []).map((x) => ({
     kind: "admin",
     id: x.id,
     title: x.title || x.url,
-    href: x.url, // extern
+    href: x.url,
     img: pickImage(x),
     excerpt: x.excerpt,
     tags: uniqueTags(x.tags),
     created_at: x.created_at || null,
   }));
 
-  const editorialCards: Card[] = (editorial ?? []).map((x: SiteArticle) => ({
+  const editorialCards: Card[] = (editorial ?? []).map((x) => ({
     kind: "editorial",
     id: x.id,
     title: x.title,
-    href: `/an/${x.id}`, // intern
+    href: `/an/${x.id}`,
     img: pickImage(x),
     excerpt: x.excerpt ?? null,
     tags: uniqueTags(x.tags ?? x.tags_lc),
     created_at: x.created_at || null,
   }));
 
-  // 4) Mergen, Dubletten bremsen, sortieren, top 12
   const seen = new Set<string>();
   const merged = [...adminCards, ...editorialCards]
     .filter((c) => {
