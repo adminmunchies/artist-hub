@@ -1,62 +1,55 @@
-"use client";
+// app/claim/[token]/page.tsx
+import Link from "next/link";
+import { getPlanById, type Role } from "@/lib/plans";
 
-import { useMemo, useState } from "react";
-import { useRouter, useSearchParams, useParams } from "next/navigation";
-import type { Role } from "../../../lib/plans";
-import { getPlanById } from "../../../lib/plans";
+type P = { token: string };
+type SP = { role?: string; plan?: string };
 
-export default function ClaimPage() {
-  const router = useRouter();
-  const qs = useSearchParams();
-  const { token } = useParams<{ token: string }>();
+export default async function ClaimPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<P>;
+  searchParams: Promise<SP>;
+}) {
+  const { token } = await params;
+  const sp = await searchParams;
 
-  const role = (qs.get("role") || "artist") as Role;
-  const planId = qs.get("plan") || "artist_free";
-  const email = qs.get("email") || "";
-  const artistId = qs.get("artist_id") || "";
-
-  const plan = useMemo(() => getPlanById(planId), [planId]);
-  const [accepted, setAccepted] = useState(false);
-
-  function accept() {
-    try { localStorage.setItem("ah_plan", planId); } catch {}
-    setAccepted(true);
-    if (role === "artist" && artistId) {
-      router.replace(`/onboarding/${role}`);
-      return;
-    }
-    router.replace(`/dashboard/settings/plan?plan=${encodeURIComponent(planId)}`);
-  }
+  const role = (sp.role as Role) || "artist";
+  const planId = sp.plan || `${role}_basic`;
+  const plan = getPlanById(role, planId);
 
   return (
-    <main className="pb-24 pt-6">
-      <h1 className="text-3xl font-semibold">Accept invite</h1>
-      <p className="mt-2" style={{ color: "#666" }}>
-        You were invited as <strong>{role}</strong>
-        {plan ? ` with plan “${plan.name}”` : ""}.
+    <main className="mx-auto max-w-3xl px-4 py-8">
+      <h1 className="text-2xl font-semibold mb-4">Accept invite</h1>
+      <p className="mb-6">
+        You were invited as <strong>{role}</strong> with plan{" "}
+        <strong>{plan?.title ?? "—"}</strong>.
       </p>
-      {email && <p className="mt-1" style={{ color: "#666" }}>Prefilled email: {email}</p>}
-      {artistId && <p className="mt-1" style={{ color: "#666" }}>Claiming artist profile: {artistId}</p>}
+      <p className="text-xs text-gray-500 mb-8">Token: {token.slice(0, 5)}… (MVP demo)</p>
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <p className="mt-1 text-sm" style={{ color: "#666" }}>
-          Token: <code>{(token ?? "").toString().slice(0, 6)}…</code> (MVP demo)
-        </p>
+      {plan ? (
+        <>
+          <h2 className="text-xl font-medium mb-2">{plan.title}</h2>
+          <ul className="list-disc pl-6 mb-6">
+            {plan.features.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
 
-        {plan && (
-          <>
-            <h2 className="text-lg font-medium" style={{ marginTop: 12 }}>{plan.name}</h2>
-            <ul className="mt-2 list-disc pl-5 text-sm">
-              {plan.features.slice(0, 4).map((f, i) => <li key={i}>{f}</li>)}
-            </ul>
-          </>
-        )}
-
-        <div className="mt-6" style={{ display: "flex", gap: 10 }}>
-          <a href="/login" className="btn" style={{ borderColor: "#bbb" }}>Sign in</a>
-          <button className="btn" onClick={accept} disabled={accepted}>Accept & continue</button>
-          <a href="/" className="btn" style={{ borderColor: "#bbb" }}>Decline</a>
-        </div>
+      <div className="flex gap-4">
+        <Link href={`/login?next=/dashboard`} className="rounded-md border px-4 py-2 text-sm">
+          Sign in
+        </Link>
+        <Link
+          href={`/dashboard/settings/plan?plan=${encodeURIComponent(planId)}`}
+          className="rounded-md border px-4 py-2 text-sm"
+        >
+          Accept & continue
+        </Link>
+        <Link href="/" className="text-sm underline">Decline</Link>
       </div>
     </main>
   );

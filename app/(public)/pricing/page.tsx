@@ -1,130 +1,67 @@
-"use client";
+// app/(public)/pricing/page.tsx
+import type { Metadata } from "next";
+import Link from "next/link";
+import { PLANS_BY_ROLE, type Role } from "@/lib/plans";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import type { Role } from "../../../lib/plans";
-import { getPlansByRole, type Plan } from "../../../lib/plans";
-import PaywallModal from "../../../components/paywall/PaywallModal";
-
-const ROLES: Role[] = ["artist", "curator", "gallery", "collector"];
-const LABEL: Record<Role, string> = {
-  artist: "Artist",
-  curator: "Curator",
-  gallery: "Gallery / Institution",
-  collector: "Collector",
+export const metadata: Metadata = {
+  title: "Pricing & Plans – Artist Hub",
 };
 
-function PlansSection({
-  role,
-  onPickPaid,
-  onPickFree,
+type SP = { role?: string };
+
+export default async function PricingPage({
+  searchParams,
 }: {
-  role: Role;
-  onPickPaid: (p: Plan) => void;
-  onPickFree: (p: Plan) => void;
+  searchParams: Promise<SP>;
 }) {
-  const plans = getPlansByRole(role);
-  return (
-    <section className="mt-8">
-      <div className="pricing-grid">
-        {plans.map((p) => (
-          <div key={p.id} className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <h3 className="text-lg font-medium">{p.name}</h3>
-              <span className="text-sm">{p.isFree ? "€0" : `€${p.priceMonthlyEUR}`}/mo</span>
-            </div>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
-              {p.features.map((f, i) => <li key={i}>{f}</li>)}
-            </ul>
-            <div className="mt-5" style={{ display: "flex", justifyContent: "flex-end" }}>
-              {p.isFree ? (
-                <a
-                  href={`/dashboard/settings/plan?plan=${encodeURIComponent(p.id)}`}
-                  className="btn"
-                  onClick={() => onPickFree(p)}
-                >
-                  Choose Free
-                </a>
-              ) : (
-                <button className="btn" onClick={() => onPickPaid(p)}>
-                  Choose plan
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-export default function PricingPage() {  // <-- Default-Export vorhanden
-  const params = useSearchParams();
-  const router = useRouter();
-
-  const initialRole = useMemo<Role>(() => {
-    const q = (params.get("role") || "").toLowerCase();
-    return ROLES.includes(q as Role) ? (q as Role) : "artist";
-  }, [params]);
-
-  const [role, setRole] = useState<Role>(initialRole);
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<Plan | null>(null);
-
-  useEffect(() => { setRole(initialRole); }, [initialRole]);
-
-  function selectRole(r: Role) {
-    setRole(r);
-    const sp = new URLSearchParams(Array.from(params.entries()));
-    sp.set("role", r);
-    router.replace(`/pricing?${sp.toString()}`);
-  }
-
-  function onPickFree(p: Plan) {
-    try { localStorage.setItem("ah_plan", p.id); } catch {}
-  }
-
-  function onPickPaid(p: Plan) {
-    setSelected(p);
-    setOpen(true);
-  }
+  const sp = await searchParams;
+  const role = (sp.role as Role) || "artist";
+  const plans = PLANS_BY_ROLE[role];
 
   return (
-    <main className="pb-24 pt-6">
-      <h1 className="text-3xl font-semibold">Pricing & Plans</h1>
-      <p className="mt-2 text-sm" style={{ color: "#666" }}>
-        Change or cancel anytime. Prices include VAT where applicable.
-      </p>
+    <main className="mx-auto max-w-6xl px-4 py-8">
+      <h1 className="text-2xl font-semibold mb-6">Pricing & Plans</h1>
 
-      <div className="tabs" role="tablist" aria-label="Choose role">
-        {ROLES.map((r) => (
-          <button
+      <div className="flex gap-2 mb-8">
+        {(["artist", "curator", "gallery", "collector"] as Role[]).map((r) => (
+          <Link
             key={r}
-            className="tab"
-            role="tab"
-            aria-current={role === r ? "page" : undefined}
-            onClick={() => selectRole(r)}
+            href={`/pricing?role=${r}`}
+            className={`rounded-full border px-3 py-1 text-sm ${
+              r === role ? "bg-gray-200" : ""
+            }`}
+            prefetch={false}
           >
-            {LABEL[r]}
-          </button>
+            {r === "gallery" ? "Gallery / Institution" : r[0].toUpperCase() + r.slice(1)}
+          </Link>
         ))}
       </div>
 
-      <h2 className="text-2xl font-semibold" style={{ marginTop: 18 }}>{LABEL[role]}</h2>
-      <PlansSection role={role} onPickPaid={onPickPaid} onPickFree={onPickFree} />
-
-      {selected && (
-        <PaywallModal
-          open={open}
-          title={`Upgrade to ${selected.name}`}
-          subhead={`You’re choosing the ${selected.role} plan.`}
-          benefits={selected.features}
-          priceLabel={`€${selected.priceMonthlyEUR}/mo`}
-          ctaHref={`/api/checkout?plan=${encodeURIComponent(selected.id)}`}
-          onUnlock={() => { try { localStorage.setItem("ah_plan", selected.id); } catch {} }}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      <section>
+        <h2 className="text-xl font-medium mb-4">
+          {role[0].toUpperCase() + role.slice(1)}
+        </h2>
+        <div className="grid md:grid-cols-3 gap-6">
+          {plans.map((p) => (
+            <div key={p.id} className="rounded-2xl border p-5">
+              <div className="text-lg font-medium mb-2">{p.title}</div>
+              <div className="mb-3 text-sm opacity-70">{p.price}</div>
+              <ul className="list-disc pl-5 mb-4 text-sm">
+                {p.features.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+              <Link
+                href={`/claim/DEMO123?role=${role}&plan=${p.id}`}
+                className="rounded-md border px-3 py-2 text-sm"
+                prefetch={false}
+              >
+                {p.price.startsWith("€0") ? "Choose Free" : "Choose plan"}
+              </Link>
+            </div>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
