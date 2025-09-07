@@ -51,6 +51,12 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
+      {/* CTA Funnel (optional): Join & Pricing */}
+      <div className="mb-6 flex items-center gap-3">
+        <Link href="/join" className="btn">Join</Link>
+        <Link href="/pricing" className="btn" prefetch={false}>Pricing</Link>
+      </div>
+
       {/* Organization JSON-LD (SSR) */}
       <script
         type="application/ld+json"
@@ -108,4 +114,3 @@ export default async function HomePage() {
     </main>
   );
 }
-

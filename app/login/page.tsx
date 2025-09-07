@@ -1,82 +1,69 @@
-// app/login/page.tsx
-import { redirect as nextRedirect } from "next/navigation";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+"use client";
 
-type PageProps = {
-  searchParams?: Promise<Record<string, string | undefined>>;
-};
+import { useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export default function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-export default async function LoginPage(props: PageProps) {
-  const sp = (await props.searchParams) || {};
-  const to = sp.redirect || "/dashboard";
+  const site =
+    (typeof process !== "undefined" &&
+      process.env.NEXT_PUBLIC_SITE_URL) ||
+    (typeof window !== "undefined" ? window.location.origin : "");
 
-  // Server Action mit ECHTEN Cookie-Writes (nicht getSupabaseServer)
-  async function signInAction(formData: FormData) {
-    "use server";
-
-    const email = String(formData.get("email") || "").trim();
-    const password = String(formData.get("password") || "");
-    if (!email || !password) return { error: "Email and password required." };
-
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    const jar = await cookies();
-
-    const supabase = createServerClient(url, anon, {
-      cookies: {
-        get(name: string) {
-          return jar.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          jar.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          jar.set({ name, value: "", ...options });
-        },
-      },
+  async function sendLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email) return;
+    setError(null);
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${site}/dashboard` },
     });
+    setLoading(false);
+    if (error) setError(error.message);
+    else setSent(true);
+  }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message };
-
-    nextRedirect(to);
+  if (sent) {
+    return (
+      <main className="pb-24 pt-6">
+        <h1 className="text-3xl font-semibold">Check your inbox</h1>
+        <p className="mt-2" style={{ color: "#666" }}>
+          We’ve sent a magic sign-in link to <strong>{email}</strong>.
+        </p>
+        <p className="mt-4">
+          <a className="btn" href="/">Back to home</a>
+        </p>
+      </main>
+    );
   }
 
   return (
-    <main className="mx-auto max-w-md p-6">
-      <h1 className="mb-6 text-2xl font-semibold">Login</h1>
-
-      {/* Keine method/encType bei Server-Action */}
-      <form action={signInAction} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium">Email</label>
-          <input
-            name="email"
-            type="email"
-            autoComplete="email"
-            className="w-full rounded-md border px-3 py-2"
-            placeholder="you@example.com"
-          />
+    <main className="pb-24 pt-6">
+      <h1 className="text-3xl font-semibold">Sign in</h1>
+      <form onSubmit={sendLink} className="card" style={{ marginTop: 16, maxWidth: 420 }}>
+        <label className="text-sm" style={{ color: "#666" }}>Email</label>
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="btn"
+          placeholder="you@example.com"
+          style={{ width: "100%", marginTop: 8 }}
+        />
+        {error && <p className="mt-2" style={{ color: "crimson" }}>{error}</p>}
+        <div className="mt-4" style={{ display: "flex", gap: 10 }}>
+          <button className="btn" type="submit" disabled={loading}>
+            {loading ? "Sending…" : "Send magic link"}
+          </button>
+          <a className="btn" style={{ borderColor: "#bbb" }} href="/">Cancel</a>
         </div>
-        <div>
-          <label className="block text-sm font-medium">Password</label>
-          <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            className="w-full rounded-md border px-3 py-2"
-            placeholder="password"
-          />
-        </div>
-        <button type="submit" className="rounded-full bg-black px-4 py-2 text-white">
-          Sign in
-        </button>
       </form>
     </main>
   );
 }
-

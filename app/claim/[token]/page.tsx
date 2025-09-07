@@ -1,14 +1,14 @@
-// app/claim/[token]/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams, useParams } from "next/navigation";
 import type { Role } from "../../../lib/plans";
 import { getPlanById } from "../../../lib/plans";
 
-export default function ClaimPage({ params }: { params: { token: string } }) {
+export default function ClaimPage() {
   const router = useRouter();
   const qs = useSearchParams();
+  const { token } = useParams<{ token: string }>();
 
   const role = (qs.get("role") || "artist") as Role;
   const planId = qs.get("plan") || "artist_free";
@@ -32,14 +32,15 @@ export default function ClaimPage({ params }: { params: { token: string } }) {
     <main className="pb-24 pt-6">
       <h1 className="text-3xl font-semibold">Accept invite</h1>
       <p className="mt-2" style={{ color: "#666" }}>
-        You were invited as <strong>{role}</strong>{plan ? ` with plan “${plan.name}”` : ""}.
+        You were invited as <strong>{role}</strong>
+        {plan ? ` with plan “${plan.name}”` : ""}.
       </p>
       {email && <p className="mt-1" style={{ color: "#666" }}>Prefilled email: {email}</p>}
       {artistId && <p className="mt-1" style={{ color: "#666" }}>Claiming artist profile: {artistId}</p>}
 
       <div className="card" style={{ marginTop: 16 }}>
         <p className="mt-1 text-sm" style={{ color: "#666" }}>
-          Token: <code>{params.token.slice(0, 6)}…</code> (MVP demo)
+          Token: <code>{(token ?? "").toString().slice(0, 6)}…</code> (MVP demo)
         </p>
 
         {plan && (
