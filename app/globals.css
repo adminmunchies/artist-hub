@@ -1,4 +1,38 @@
-@import "tailwindcss";
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    margin-top: 18px;
+    padding-bottom: 8px;
+  }
+  .tab {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 14px;
+  }
+  .tab[aria-current="page"] {
+    background: #111;
+    color: #fff;
+    border-color: #111;
+  }
+  
+  /* Cards grid spacing on pricing */
+  .pricing-grid {
+    display: grid;
+    gap: 14px;
+  }
+  @media (min-width: 640px) { .pricing-grid { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1024px) { .pricing-grid { grid-template-columns: 1fr 1fr 1fr; } }
+  
+  /* Tabs */
+.tabs { display:flex; gap:8px; align-items:center; border-bottom:1px solid var(--border); margin-top:18px; padding-bottom:8px; }
+.tab { padding:6px 12px; border:1px solid var(--border); border-radius:999px; font-size:14px; }
+.tab[aria-current="page"] { background:#111; color:#fff; border-color:#111; }
 
-:root { color-scheme: light; }
-html, body { height: 100%; }
+/* Cards grid */
+.pricing-grid, .join-grid { display:grid; gap:14px; }
+@media (min-width: 640px) { .pricing-grid, .join-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1024px) { .pricing-grid, .join-grid { grid-template-columns: 1fr 1fr 1fr; } }
