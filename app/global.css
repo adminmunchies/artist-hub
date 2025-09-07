@@ -1,7 +1,0 @@
-/* app/globals.css */
-@import "tailwindcss";
-
-/* optional minimal defaults */
-html, body {
-  height: 100%;
-}
