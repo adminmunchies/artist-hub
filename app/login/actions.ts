@@ -1,20 +1,17 @@
-'use server';
-import { redirect } from 'next/navigation';
-import { routes } from '@/lib/routes';
-import { createServerSupabaseAction } from '@/lib/supabaseServer';
+"use server";
+
+import { redirect } from "next/navigation";
+import { getSupabaseServer } from "@/lib/supabaseServer";
 
 export async function loginAction(formData: FormData) {
-  const email = String(formData.get('email') ?? '');
-  const password = String(formData.get('password') ?? '');
-  const redirectTo = String(formData.get('redirectTo') ?? routes.dashboardWorks());
-  const supabase = await createServerSupabaseAction();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: 'Login failed. Check email/password.' };
-  redirect(redirectTo);
-}
+  const email = String(formData.get("email") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+  const next = String(formData.get("next") ?? "/dashboard");
+  if (!email || !password) return { error: "Missing credentials." };
 
-export async function logoutAction() {
-  const supabase = await createServerSupabaseAction();
-  await supabase.auth.signOut();
-  redirect(routes.home());
+  const supa = await getSupabaseServer();
+  const { error } = await supa.auth.signInWithPassword({ email, password });
+  if (error) return { error: "Login failed. Check email/password." };
+
+  redirect(next);
 }
