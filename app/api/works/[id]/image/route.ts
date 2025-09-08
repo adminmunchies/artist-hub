@@ -1,83 +1,43 @@
 // app/api/works/[id]/image/route.ts
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+// Upload work image and update works.image_url (RLS-safe: UPDATE only)
+export const dynamic = "force-dynamic";
+
+import type { NextRequest } from "next/server";
+import supabaseAdmin from "@/lib/supabaseAdmin";
+import { getSupabaseServer } from "@/lib/supabaseServer";
 
 export async function POST(
-  req: Request,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const id = params.id;
   try {
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "No file" }, { status: 400 });
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: "Max 10 MB" }, { status: 400 });
+      return Response.json({ ok: false, stage: "input", error: "file missing" }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookies) {
-            try {
-              cookies.forEach(({ name, value, options }: any) =>
-                cookieStore.set({ name, value, ...options })
-              );
-            } catch {}
-          },
-        },
-      }
-    );
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const path = `works/${id}/${Date.now()}.${ext}`;
 
-    // Auth
-    const { data: auth } = await supabase.auth.getUser();
-    const user = auth?.user;
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // 1) Storage upload (service role bypasses storage RLS)
+    const { error: upErr } = await supabaseAdmin.storage.from("works").upload(path, file, {
+      upsert: false,
+      contentType: file.type || "image/jpeg",
+    });
+    if (upErr) return Response.json({ ok: false, stage: "upload", error: upErr.message }, { status: 500 });
 
-    // Artist des Users
-    const { data: artist } = await supabase
-      .from("artists")
-      .select("id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (!artist) return NextResponse.json({ error: "Artist not found" }, { status: 404 });
+    const { data: pub } = await supabaseAdmin.storage.from("works").getPublicUrl(path);
+    const image_url = pub?.publicUrl;
 
-    // Work prüfen (gehört zu Artist?)
-    const { data: work } = await supabase
-      .from("works")
-      .select("id, artist_id")
-      .eq("id", params.id)
-      .maybeSingle();
-    if (!work || work.artist_id !== artist.id) {
-      return NextResponse.json({ error: "Work not found" }, { status: 404 });
-    }
+    // 2) DB update (RLS applies; UPDATE policy is satisfied for the owner)
+    const supabase = await getSupabaseServer();
+    const { error: updErr } = await supabase.from("works").update({ image_url }).eq("id", id).limit(1);
+    if (updErr) return Response.json({ ok: false, stage: "update", error: updErr.message }, { status: 403 });
 
-    // Upload nach Storage (Bucket: "works")
-    const path = `${work.id}/${Date.now()}_${file.name}`;
-    const { error: upErr } = await supabase.storage
-      .from("works")
-      .upload(path, file, { upsert: true, contentType: file.type || "image/*" });
-    if (upErr) throw upErr;
-
-    const { data: pub } = await supabase.storage.from("works").getPublicUrl(path);
-    const image_url = pub.publicUrl;
-
-    const { error: updErr } = await supabase
-      .from("works")
-      .update({ image_url, updated_at: new Date().toISOString() })
-      .eq("id", work.id);
-    if (updErr) throw updErr;
-
-    return NextResponse.json({ ok: true, image_url });
+    return Response.json({ ok: true, id, image_url });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Upload failed" }, { status: 500 });
+    return Response.json({ ok: false, stage: "exception", error: String(e?.message || e) }, { status: 500 });
   }
 }

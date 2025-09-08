@@ -1,54 +1,48 @@
 // lib/og.ts
-export type OgData = { title?: string; description?: string; image?: string };
+// server-only Open Graph scraper for fetching og:title/og:image.
+import "server-only";
 
-function pickMeta(html: string, ...keys: string[]) {
-  for (const k of keys) {
-    const re = new RegExp(
-      `<meta[^>]+(?:property|name)=["']${k}["'][^>]+content=["']([^"']+)["'][^>]*>`,
-      "i"
-    );
-    const m = html.match(re);
-    if (m) return m[1];
+export type OgData = { title?: string | null; image?: string | null };
+
+function toAbs(base: string, maybe: string | null | undefined) {
+  try {
+    if (!maybe) return null;
+    return new URL(maybe, base).toString();
+  } catch {
+    return null;
   }
-  return undefined;
+}
+
+function pick(html: string, re: RegExp): string | null {
+  const m = html.match(re);
+  return m?.[1]?.trim() ?? null;
 }
 
 export async function scrapeOG(url: string): Promise<OgData> {
-  const res = await fetch(url, {
-    // viele Seiten liefern erst mit "echtem" UA Bilder
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      "Accept-Language": "en",
-    },
-    // keine Caches beim Scrapen
-    cache: "no-store",
-  });
-  const html = await res.text();
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+        accept: "text/html,*/*",
+      },
+      cache: "no-store",
+      redirect: "follow",
+    });
+    const html = await res.text();
 
-  const title =
-    pickMeta(html, "og:title") ??
-    pickMeta(html, "twitter:title") ??
-    html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
+    const title =
+      pick(html, /<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ??
+      pick(html, /<meta[^>]+name=["']og:title["'][^>]*content=["']([^"']+)["']/i) ??
+      pick(html, /<title[^>]*>([^<]+)<\/title>/i);
 
-  const description =
-    pickMeta(html, "og:description") ?? pickMeta(html, "twitter:description");
+    const imgRaw =
+      pick(html, /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ??
+      pick(html, /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i) ??
+      pick(html, /<link[^>]+rel=["']image_src["'][^>]*href=["']([^"']+)["']/i);
 
-  let image =
-    pickMeta(html, "og:image") ??
-    pickMeta(html, "twitter:image") ??
-    html.match(
-      /<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*>/i
-    )?.[1];
-
-  // relative → absolute URL auflösen
-  if (image) {
-    try {
-      image = new URL(image, url).toString();
-    } catch {
-      /* ignore */
-    }
+    return { title, image: toAbs(res.url || url, imgRaw) };
+  } catch {
+    return { title: null, image: null };
   }
-
-  return { title, description, image };
 }

@@ -1,4 +1,7 @@
+/* app/globals.css */
 @import "tailwindcss";
 
-:root { color-scheme: light; }
-html, body { height: 100%; }
+/* optional, aber nett */
+@layer base {
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+}

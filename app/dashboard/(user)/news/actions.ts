@@ -1,78 +1,73 @@
+// app/dashboard/(user)/news/actions.ts
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { getSupabaseServer } from "@/lib/supabaseServer";
+import { scrapeOG } from "@/lib/og";
 
-function parseTags(raw: unknown): string[] {
-  return String(raw ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 8); // sanftes Limit
+function parseTags(input: string): string[] {
+  const seen = new Set<string>();
+  for (const raw of (input || "").split(",").map(s => s.trim())) {
+    if (!raw) continue;
+    const k = raw.toLowerCase();
+    if (!seen.has(k)) seen.add(k);
+  }
+  return Array.from(seen).slice(0, 8);
 }
 
-async function getCurrentArtistId() {
-  const supabase = await getSupabaseServer();
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth?.user?.id;
-  if (!uid) throw new Error("Not signed in");
+export async function addArtistNewsAction(formData: FormData) {
+  const url = String(formData.get("url") || "").trim();
+  const tagsRaw = String(formData.get("tags") || "");
+  if (!/^https?:\/\//i.test(url)) {
+    return { ok: false, error: "Invalid URL" };
+  }
 
-  // Wir gehen davon aus: artists.user_id verweist auf auth.user.id
+  const supabase = await getSupabaseServer();
+  const { data: me } = await supabase.auth.getUser();
+  const uid = me?.user?.id;
+  if (!uid) return { ok: false, error: "Not signed in" };
+
+  // Artist der Session bestimmen
   const { data: artist } = await supabase
     .from("artists")
     .select("id")
     .eq("user_id", uid)
     .limit(1)
-    .maybeSingle();
+    .single();
 
-  if (!artist?.id) throw new Error("No artist profile linked to this account.");
-  return artist.id as string;
-}
+  if (!artist?.id) return { ok: false, error: "No artist mapped to this user" };
 
-export async function addNews(formData: FormData) {
-  const url = String(formData.get("url") || "").trim();
-  const tags = parseTags(formData.get("tags"));
-
-  if (!url) throw new Error("URL is required.");
-
-  const supabase = await getSupabaseServer();
-  const artistId = await getCurrentArtistId();
-
-  const { error } = await supabase.from("artist_news").insert({
-    artist_id: artistId,
-    url,
-    tags, // <— neu
-    published: true, // öffentlich
-  });
-
-  if (error) throw new Error(error.message);
-  revalidatePath("/dashboard/news");
-}
-
-export async function updateTags(formData: FormData) {
-  const id = String(formData.get("id") || "");
-  const tags = parseTags(formData.get("tags"));
-
-  if (!id) throw new Error("Missing news id.");
-
-  const supabase = await getSupabaseServer();
-  const { error } = await supabase
+  // 1) Insert der News (RLS: artist_id gehört zum aktuellen User)
+  const { data: inserted, error: insErr } = await supabase
     .from("artist_news")
-    .update({ tags })
-    .eq("id", id);
+    .insert({
+      artist_id: artist.id,
+      url,
+      tags: parseTags(tagsRaw),
+      published: true,
+    })
+    .select("id")
+    .single();
 
-  if (error) throw new Error(error.message);
-  revalidatePath("/dashboard/news");
+  if (insErr) return { ok: false, error: insErr.message };
+
+  // 2) OG-Daten holen und zurückschreiben (RLS: UPDATE ist erlaubt)
+  const og = await scrapeOG(url);
+  if (og.image || og.title) {
+    await supabase
+      .from("artist_news")
+      .update({
+        image_url: og.image ?? null,
+        title: og.title ?? null,
+      })
+      .eq("id", inserted.id)
+      .limit(1);
+  }
+
+  return { ok: true, id: inserted.id };
 }
 
-export async function deleteNews(formData: FormData) {
-  const id = String(formData.get("id") || "");
-  if (!id) throw new Error("Missing news id.");
-
+export async function deleteArtistNewsAction(id: string) {
   const supabase = await getSupabaseServer();
   const { error } = await supabase.from("artist_news").delete().eq("id", id);
-
-  if (error) throw new Error(error.message);
-  revalidatePath("/dashboard/news");
+  return { ok: !error, error: error?.message ?? null };
 }
-

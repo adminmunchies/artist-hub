@@ -1,16 +1,11 @@
 // app/layout.tsx
 import "./globals.css";
-import type { Metadata } from "next";
+import type { ReactNode } from "react";
 
-export const metadata: Metadata = {
-  title: "Munchies Art Club",
-  description: "Curated artist profiles, works and news from Munchies Art Club.",
-};
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-dvh antialiased">
+      <body className="min-h-dvh bg-white text-gray-900 antialiased">
         {children}
       </body>
     </html>
